@@ -1,7 +1,7 @@
 // Shared domain types for the Taskmaster competition UI.
-// These intentionally describe plain data shapes so the current mock
-// data layer can later be swapped for Supabase queries without touching
-// the UI components.
+// These intentionally describe plain data shapes: the data layer maps
+// Postgres rows (see `src/db/schema.ts`) onto them, so the UI components
+// never depend on the database.
 
 export type TaskStatus = "upcoming" | "live" | "completed";
 
@@ -29,7 +29,7 @@ export interface Player {
 /**
  * A fixed squad of players (4–5) for team-format tasks. `memberIds` is the
  * single source of truth for who is on the team; the roster order is
- * irrelevant. Becomes a Supabase table later — keep the shape stable.
+ * irrelevant. Stored in the `teams` / `team_members` tables.
  */
 export interface Team {
   id: string;
@@ -72,7 +72,7 @@ export interface Score {
  * A one-off points adjustment for a player, tied to the task week it was
  * given in. Positive values are bonuses, negative values are deductions.
  * Adjustments count toward the player's overall total but never change that
- * week's finishing positions. Becomes a Supabase row later.
+ * week's finishing positions. Stored in the `bonus_points` table.
  */
 export interface BonusPoint {
   taskId: string;
@@ -85,7 +85,7 @@ export interface BonusPoint {
 
 /**
  * A team's result on a single team-format task. The raw record the team
- * leaderboard is derived from; becomes a Supabase row later.
+ * leaderboard is derived from (points from `team_scores`, position derived).
  */
 export interface TeamScore {
   taskId: string;

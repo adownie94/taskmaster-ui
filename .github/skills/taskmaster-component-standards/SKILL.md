@@ -3,25 +3,28 @@ name: taskmaster-component-standards
 description: >-
   Coding standards and architecture conventions for EAYL Taskmaster Astro UI.
   Use when creating or editing Astro components, pages, TypeScript types, or
-  the mock data layer so new code matches the established patterns: typed
-  `Props`, the data-layer separation (types → data → derived queries → UI),
-  mock-data-only rules, prop-driven reusable components, client scripts, and
-  accessibility. Triggers: "add a component", "create a page", "add mock
-  data", "wire up data", "new type", "follow the project conventions".
+  the data layer so new code matches the established patterns: typed
+  `Props`, the data-layer separation (schema → data → derived queries → UI),
+  build-time Neon Postgres data rules, prop-driven reusable components, client
+  scripts, and accessibility. Triggers: "add a component", "create a page",
+  "add data", "wire up data", "new type", "follow the project conventions".
 ---
 
 # Taskmaster Component & Code Standards
 
-The UI is **Astro + TypeScript + Tailwind v4**, static-first, **no React**,
-**no backend/Supabase yet**. The goal is a clean, prop-driven component set
-backed by a swappable mock data layer.
+The UI is **Astro + TypeScript + Tailwind v4**, static-first, **no React**.
+Competition data lives in **Neon Postgres** (Drizzle ORM) and is read **at
+build time only** — the deployed site is static, with no runtime backend. The
+goal is a clean, prop-driven component set backed by a database-agnostic data
+layer.
 
 ## Architecture: strict data-layer separation
 Data flows one direction. Keep every layer in its place:
 
 ```
+src/db/schema.ts        ← Drizzle tables (raw facts only)
 src/types/index.ts      ← shape definitions (interfaces, unions)
-src/data/*.ts           ← raw mock records (players, tasks, scores)
+src/data/*.ts           ← load rows at build time → raw records (types)
 src/data/queries.ts     ← derived selectors / view models
 pages (.astro)          ← call selectors, pass plain props to components
 components (.astro)      ← render props only; NO data imports of raw records
@@ -35,8 +38,9 @@ Rules:
 - All cross-record computation (leaderboard ranking, stats, recent results,
   initials) lives in `queries.ts` as pure functions — not in components or
   page markup.
-- This separation exists so the mock arrays can later be replaced by Supabase
-  queries **without changing any component**. Preserve it.
+- This separation keeps the database out of the UI: only `src/data/*.ts`
+  imports `src/db`, and **no component, page or client script may import
+  `src/db`**. Preserve it.
 
 ## Types (`src/types/index.ts`)
 - Define a shared `interface` / union for every domain concept and reuse it;
@@ -47,14 +51,19 @@ Rules:
 - Status is a string-literal union (`"upcoming" | "live" | "completed"`),
   exported as `TaskStatus`.
 
-## Mock data (`src/data/*.ts`)
-- One file per entity: `players.ts`, `tasks.ts`, `scores.ts`.
-- Export a typed array plus small `getXById` / `getCurrent*` lookup helpers.
-- Derive scores deterministically where practical (see `scores.ts`) so the
-  dataset stays internally consistent and easy to extend.
-- Add a comment noting the array will become a Supabase query later.
-- Keep data realistic and sufficient to demonstrate every UI state (upcoming,
-  live, completed).
+## Data (`src/db/*`, `src/data/*.ts`)
+- The schema lives in `src/db/schema.ts`. Change it, then
+  `npm run db:generate`; never hand-edit or ad-hoc migrate the database.
+  Test migrations on a Neon branch (`neon checkout dev --create`) first.
+- Store **facts only** (points, dates, membership). Derive positions, status
+  and totals in `src/data/*` / `queries.ts` so they can't drift.
+- One file per entity: `players.ts`, `teams.ts`, `tasks.ts`, `scores.ts`. Each
+  loads its rows once with a top-level `await db.select()…` and maps them to
+  the `src/types` shape (omit `null` columns rather than passing `null`).
+- Export a typed array plus small `getXById` / `getCurrent*` lookup helpers,
+  keeping selectors synchronous.
+- New initial/demo rows go in `db/seed-data.ts` (seeded with `npm run db:seed`,
+  insert-only). Editorial copy (`recaps.ts`, `changelog.ts`) stays in TS.
 
 ## Astro component conventions
 - **Typed props:** every component declares `interface Props { ... }` and
@@ -105,6 +114,7 @@ unfinished or contains placeholder content.
 
 ## Don't
 - ❌ Add React or UI libraries without a strong technical reason.
-- ❌ Implement Supabase, auth, or any backend yet.
+- ❌ Add a runtime backend, auth, or query the database from the browser
+  (the site is static; data is read at build time).
 - ❌ Import raw data arrays into components or compute standings in markup.
 - ❌ Leave untyped props or inline one-off object shapes.

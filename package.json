@@ -12,12 +12,19 @@
     "astro": "astro",
     "check": "astro check",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "db:check": "node --env-file=.env.local scripts/db-check.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx --env-file=.env.local db/seed.ts",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.4",
     "@tailwindcss/vite": "^4.3.3",
     "astro": "^7.3.5",
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1",
     "tailwindcss": "^4.3.3"
   },
   "allowScripts": {
@@ -25,8 +32,11 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11",
     "prettier": "^3.9.9",
     "prettier-plugin-astro": "^0.14.1",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3"
   }
 }

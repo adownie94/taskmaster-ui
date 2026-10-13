@@ -1,167 +1,84 @@
+import { asc } from "drizzle-orm";
 import type { BonusPoint, Score, TeamScore } from "../types";
+import { db } from "../db";
+import {
+  bonusPoints as bonusPointsTable,
+  taskScores as taskScoresTable,
+  teamScores as teamScoresTable,
+} from "../db/schema";
 import { tasks } from "./tasks";
 import { players } from "./players";
 import { teams } from "./teams";
 
 /**
- * Static weekly task scores — the single place results are recorded.
+ * Raw weekly results, loaded from Postgres once at build time and grouped by
+ * task id (`week-NN`). Only points are stored: finishing positions and
+ * leaderboard totals are derived below and in `queries.ts`, so recording a
+ * week's results is just inserting its rows (e.g. via `npm run db:studio`).
  *
- * Each key is a task id (`week-NN`) mapping to that week's points: one
- * `playerId: points` entry per player who scored. To publish a new week's
- * results, fill in that week's object with the points you awarded — nothing
- * else needs to change. Finishing positions and the overall leaderboard
- * totals are derived automatically in the data layer (see `buildScores` and
- * `queries.ts`), so this file is the only thing you edit each week.
+ * - `task_scores`  → one row per player per individual task.
+ * - `team_scores`  → one row per squad per team task. A squad's points are
+ *   awarded to the team (team leaderboard) *and* to every member (so the
+ *   individual standings stay complete).
+ * - `bonus_points` → one-off bonuses (positive) and deductions (negative).
+ *   They count toward the overall total but never change that week's
+ *   finishing positions or winner, and a player can receive several per week.
  *
- * Empty objects are placeholders for tasks that have not been scored yet.
- * (A task's `status` is derived automatically from its dates in `tasks.ts`,
- * so there is nothing to flip manually once a week's deadline passes.)
- *
- * This becomes a Supabase table/query later; keep the exported shapes stable.
+ * A week with no rows has simply not been scored yet. (A task's `status` is
+ * derived from its dates in `tasks.ts`, so nothing needs flipping manually.)
  */
-export const weeklyTaskScores: Record<string, Record<string, number>> = {
-  "week-01": {
-    eva: 5,
-    rebekah: 0,
-    karen: 8,
-    finnbar: 0,
-    eve: 3,
-    luke: 1,
-    rose: 10,
-    emma: 3,
-    jack: 4,
-    caolan_d: 5,
-    erin: 0,
-    john: 3,
-    connor: 1,
-    sophia: 0,
-    orlagh: 0,
-    amelia: 0,
-    daire: 3,
-    jake: 0,
-    ryan: 0,
-    caolan_t: 0,
-    criostoir: 1,
-    eimhear: 0,
-    grace: 5,
-    adam: 0,
-    andrew: 0,
-  },
-  "week-02": {
-    eva: 13,
-    rebekah: 6,
-    karen: 5,
-    finnbar: 8,
-    eve: 8,
-    luke: 6,
-    rose: 5,
-    emma: 6,
-    jack: 3,
-    caolan_d: 3,
-    erin: 3,
-    john: 3,
-    connor: 3,
-    sophia: 3,
-    orlagh: 3,
-    amelia: 4,
-    daire: 3,
-    jake: 3,
-    ryan: 3,
-    caolan_t: 3,
-    criostoir: 1,
-    eimhear: 3,
-    grace: 1,
-    adam: 1,
-    andrew: 1,
-  },
-  "week-03": {
-    eva: 7, // Initial mission complete + 1 additional mission
-    rebekah: 3, // Wooden spoon
-    karen: 2, // Participation award
-    finnbar: 1, // Participation award
-    eve: 10, // Survived + initial mission complete
-    luke: 1, // Participation award
-    rose: 14, // Survived, initial mission complete + 2 additional missions
-    emma: 5, // Initial mission complete
-    jack: 1, // Participation award
-    caolan_d: 12, // Survived + initial mission complete + first mission complete
-    erin: 8, // Survived + Sherlock Holmes
-    john: 10, // Survived + initial mission complete
-    connor: 7, // Survived + initial mission half complete
-    sophia: 10, // Survived + initial mission complete
-    orlagh: 10, // Survived + initial mission complete
-    amelia: 10, // Survived + first mission half complete + epic fail award
-    daire: 1, // Participation award
-    jake: 5, // Initial mission complete
-    ryan: 5, // Survived
-    caolan_t: 3, // Participation award + last one out
-    criostoir: 5, // Survived
-    eimhear: 1, // Participation award
-    grace: 3, // Epic Fail Award
-    adam: 1, // Participation award
-    andrew: 12, // Survived + initial mission complete
-  },
-  "week-05": {},
-  "week-06": {},
-  "week-07": {},
-  "week-08": {},
-  "week-09": {},
-  "week-10": {},
-  "week-11": {},
-  "week-12": {},
-  "week-13": {},
-  "week-14": {},
-  "week-15": {},
-  "week-16": {},
-};
+const [taskScoreRows, teamScoreRows, bonusRows] = await Promise.all([
+  db.select().from(taskScoresTable),
+  db.select().from(teamScoresTable),
+  db.select().from(bonusPointsTable).orderBy(asc(bonusPointsTable.id)),
+]);
 
-/**
- * Static weekly *team* task scores — the companion to `weeklyTaskScores` for
- * team-format tasks (see `tasks.ts`). Each key is a team task's id mapping to
- * that week's points: one `teamId: points` entry per squad.
- *
- * A team's points are awarded to the team (driving the separate team
- * leaderboard) *and* to every one of its members (so the individual standings
- * stay complete). Finishing positions among teams are derived automatically
- * (see `buildTeamScores`), exactly like the individual table — so to publish a
- * team week you only fill in that week's object here.
- *
- * Empty objects are placeholders for team tasks that have not been scored yet.
- * This becomes a Supabase table/query later; keep the exported shapes stable.
- */
-export const weeklyTeamScores: Record<string, Record<string, number>> = {
-  // week-04 is the first team task. Fill in each squad's points once scored.
-  "week-04": {},
-};
+/** Groups rows into `{ [taskId]: T[] }`, preserving row order. */
+function groupByTask<Row extends { taskId: string }, T>(
+  rows: Row[],
+  map: (row: Row) => T,
+): Record<string, T[]> {
+  const grouped: Record<string, T[]> = {};
+  for (const row of rows) (grouped[row.taskId] ??= []).push(map(row));
+  return grouped;
+}
 
-/**
- * Static weekly bonus points and deductions — one-off adjustments on top of a
- * week's task points. Each key is the task id (`week-NN`) of the week the
- * adjustment was given in, mapping to a list of `{ playerId, points, reason }`
- * entries. Use a positive `points` value for a bonus and a negative one for a
- * deduction; `reason` is shown on the player's profile and the task page.
- *
- * Adjustments count toward a player's overall leaderboard total but do NOT
- * change that week's finishing positions or winner. A player can receive more
- * than one adjustment in the same week. Example:
- *
- *   "week-03": [
- *     { playerId: "eva", points: 2, reason: "Best costume" },
- *     { playerId: "jack", points: -1, reason: "Late submission" },
- *   ],
- *
- * This becomes a Supabase table/query later; keep the exported shapes stable.
- */
+/** Individual points per task: `{ [taskId]: { [playerId]: points } }`. */
+export const weeklyTaskScores: Record<
+  string,
+  Record<string, number>
+> = Object.fromEntries(
+  Object.entries(
+    groupByTask(taskScoreRows, (row) => [row.playerId, row.points] as const),
+  ).map(([taskId, entries]) => [taskId, Object.fromEntries(entries)]),
+);
+
+/** Squad points per team task: `{ [taskId]: { [teamId]: points } }`. */
+export const weeklyTeamScores: Record<
+  string,
+  Record<string, number>
+> = Object.fromEntries(
+  Object.entries(
+    groupByTask(teamScoreRows, (row) => [row.teamId, row.points] as const),
+  ).map(([taskId, entries]) => [taskId, Object.fromEntries(entries)]),
+);
+
+/** Bonus points and deductions per task, in the order they were recorded. */
 export const weeklyBonusPoints: Record<
   string,
   { playerId: string; points: number; reason: string }[]
-> = {
-  "week-03": [
-    { playerId: "jake", points: 2, reason: "Terminal-related easter eggs" },
-    { playerId: "eve", points: 2, reason: "Turbo CRT easter egg" },
-    { playerId: "finnbar", points: 2, reason: "Traffic light easter egg" },
-  ],
-};
+> = groupByTask(bonusRows, ({ playerId, points, reason }) => ({
+  playerId,
+  points,
+  reason,
+}));
+
+// Optional notes explaining how a player's task points were made up.
+const scoreComments = new Map(
+  taskScoreRows
+    .filter((row) => row.comment !== null)
+    .map((row) => [`${row.taskId}:${row.playerId}`, row.comment as string]),
+);
 
 // Roster order, used only as a deterministic tie-breaker when two players
 // earn the same points on a task so finishing positions stay stable.
@@ -271,11 +188,13 @@ function buildScores(): Score[] {
     );
 
     for (const entry of ranked) {
+      const comment = scoreComments.get(`${task.id}:${entry.id}`);
       result.push({
         taskId: task.id,
         playerId: entry.id,
         position: entry.position,
         points: entry.points,
+        ...(comment !== undefined && { comment }),
       });
     }
   }
@@ -302,14 +221,13 @@ function buildBonusPoints(): BonusPoint[] {
   return result;
 }
 
-// All team results for scored team tasks. Later this becomes a Supabase query.
+// All team results for scored team tasks, ranked.
 export const teamScores: TeamScore[] = buildTeamScores();
 
 // All individual scores (team-task points expanded to members included).
-// Later this becomes a Supabase query.
 export const scores: Score[] = buildScores();
 
-// All bonus points and deductions. Later this becomes a Supabase query.
+// All bonus points and deductions.
 export const bonusPoints: BonusPoint[] = buildBonusPoints();
 
 export function getBonusPointsForPlayer(playerId: string): BonusPoint[] {

@@ -1,5 +1,5 @@
 // @ts-check
-import { defineConfig } from "astro/config";
+import { defineConfig, envField } from "astro/config";
 
 import tailwindcss from "@tailwindcss/vite";
 import sitemap from "@astrojs/sitemap";
@@ -15,6 +15,12 @@ export default defineConfig({
       filter: (page) => !/\/compare\/[^/]+\/[^/]+\//.test(page),
     }),
   ],
+  env: {
+    schema: {
+      // Pooled Neon connection string; the data layer reads it at build time.
+      DATABASE_URL: envField.string({ context: "server", access: "secret" }),
+    },
+  },
   vite: {
     plugins: [tailwindcss()],
   },

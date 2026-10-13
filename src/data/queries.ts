@@ -50,8 +50,9 @@ import { changelog } from "./changelog";
 import { withBase } from "../lib/url";
 
 // This module is the single "data layer" the UI talks to. Pages import these
-// derived selectors rather than raw records, so moving to Supabase later only
-// means re-implementing these functions.
+// derived selectors rather than raw records. The raw records are loaded from
+// Postgres at build time by `players.ts`, `tasks.ts`, `teams.ts` and
+// `scores.ts`; everything here is pure computation over them.
 
 const completedWeekByTask = new Map(tasks.map((t) => [t.id, t.weekNumber]));
 
