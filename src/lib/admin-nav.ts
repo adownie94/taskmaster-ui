@@ -5,6 +5,7 @@ export const ADMIN_WEEKS = "/admin/weeks";
 export const ADMIN_SEASONS = "/admin/seasons";
 export const ADMIN_ROSTER = "/admin/roster";
 export const ADMIN_SITE = "/admin/site";
+export const ADMIN_POOL = "/admin/pool";
 export const ADMIN_GUIDE = "/admin/guide";
 
 /**
@@ -29,6 +30,13 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     hint: "players, sign-in accounts and squads",
     keywords: "players teams squads accounts invite password members",
     match: ["/admin/players", "/admin/teams"],
+  },
+  {
+    href: ADMIN_POOL,
+    label: "pool",
+    title: "Run the pool bracket",
+    hint: "pool pairs, weekly draws and match results",
+    keywords: "pool bracket pairs draw matches knockout tournament winner",
   },
   {
     href: ADMIN_SITE,

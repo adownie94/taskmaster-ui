@@ -15,6 +15,11 @@ export const FEATURE_FLAGS: Record<
     description:
       "Shows the egg crates in the shop and lets players crack them. Off: the eggs, recent hatches and egg-exclusive items are hidden, and nobody can open one.",
   },
+  pool_bracket: {
+    label: "Pool bracket",
+    description:
+      "Shows the weekly pool bracket at /pool. Off: the public pages 404; admins can still set up teams and draws.",
+  },
 };
 
 export const FEATURE_FLAG_KEYS = Object.keys(FEATURE_FLAGS) as FeatureFlagKey[];

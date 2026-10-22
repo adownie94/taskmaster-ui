@@ -1536,7 +1536,7 @@ export type PageLinkSlot = number | "gap";
 // ── Feature flags ─────────────────────────────────────────────────────
 
 /** A site feature an admin can switch on or off (see `feature-flags.ts`). */
-export type FeatureFlagKey = "shop_eggs";
+export type FeatureFlagKey = "shop_eggs" | "pool_bracket";
 
 /** Whether each feature is on. */
 export type FeatureFlags = Record<FeatureFlagKey, boolean>;
