@@ -13,6 +13,11 @@ describe("mapFeatureFlags", () => {
   it("is off without a row, so new features ship disabled", () => {
     expect(mapFeatureFlags([])).toEqual({
       shop_eggs: false,
+      storm_mode: false,
+      skill_trees: false,
+      mini_tasks: false,
+      achievements: false,
+      marketplace: false,
       pool_bracket: false,
     });
   });
@@ -20,9 +25,24 @@ describe("mapFeatureFlags", () => {
   it("reads each known flag and ignores unknown ones", () => {
     expect(
       mapFeatureFlags([row("shop_eggs", true), row("nope", true)]),
-    ).toEqual({ shop_eggs: true, pool_bracket: false });
-    expect(mapFeatureFlags([row("shop_eggs", false)])).toEqual({
+    ).toEqual({
+      shop_eggs: true,
+      storm_mode: false,
+      skill_trees: false,
+      mini_tasks: false,
+      achievements: false,
+      marketplace: false,
+      pool_bracket: false,
+    });
+    expect(
+      mapFeatureFlags([row("shop_eggs", false), row("storm_mode", true)]),
+    ).toEqual({
       shop_eggs: false,
+      storm_mode: true,
+      skill_trees: false,
+      mini_tasks: false,
+      achievements: false,
+      marketplace: false,
       pool_bracket: false,
     });
   });
@@ -32,6 +52,11 @@ describe("featureFlagViews", () => {
   it("lists every flag with who last changed it", () => {
     expect(featureFlagViews([])).toEqual([
       expect.objectContaining({ key: "shop_eggs", enabled: false }),
+      expect.objectContaining({ key: "storm_mode", enabled: false }),
+      expect.objectContaining({ key: "skill_trees", enabled: false }),
+      expect.objectContaining({ key: "mini_tasks", enabled: false }),
+      expect.objectContaining({ key: "achievements", enabled: false }),
+      expect.objectContaining({ key: "marketplace", enabled: false }),
       expect.objectContaining({ key: "pool_bracket", enabled: false }),
     ]);
     expect(featureFlagViews([])[0].changedBy).toBeUndefined();

@@ -8,9 +8,11 @@ import type {
   NameColour,
   PassivePowerUpKind,
   PowerUpKind,
+  WishPowerUpKind,
   ProfileTheme,
   Rarity,
   ShopCategory,
+  ShopItem,
 } from "../types";
 import { wallClockToIso } from "../lib/time";
 
@@ -86,7 +88,8 @@ export const LOADOUT_SLOTS = [
   "theme",
 ] as const satisfies readonly LoadoutSlot[];
 
-export const NAME_COLOURS = [
+/** Name colours an admin can sell in the shop. */
+export const SHOP_NAME_COLOURS = [
   "acid",
   "amber",
   "magenta",
@@ -95,6 +98,21 @@ export const NAME_COLOURS = [
   "pumpkin",
   "glitch",
   "rainbow",
+] as const satisfies readonly NameColour[];
+
+/** Name colours only skill tree capstones grant (see `skill-trees.ts`). */
+export const SKILL_NAME_COLOURS = [
+  "storm",
+  "hacker",
+  "friendship",
+  "platinum",
+  "cartographer",
+] as const satisfies readonly NameColour[];
+
+/** Every name colour a player can wear. */
+export const NAME_COLOURS = [
+  ...SHOP_NAME_COLOURS,
+  ...SKILL_NAME_COLOURS,
 ] as const satisfies readonly NameColour[];
 
 export const PROFILE_THEMES = [
@@ -122,13 +140,59 @@ export const PASSIVE_POWER_UP_KINDS = [
   "insurance",
 ] as const satisfies readonly PassivePowerUpKind[];
 
+/** The One Wish Willow's effect: spent by making a wish, not on a week. */
+export const WISH_POWER_UP: WishPowerUpKind = "wish";
+/** The longest wish (and Taskmaster's reply), in characters. */
+export const WISH_MAX = 200;
+
 export const POWER_UP_KINDS = [
   ...ACTIVE_POWER_UP_KINDS,
   ...PASSIVE_POWER_UP_KINDS,
+  WISH_POWER_UP,
 ] as const satisfies readonly PowerUpKind[];
 
 export const isActivePowerUp = (kind: PowerUpKind): kind is ActivePowerUpKind =>
   ACTIVE_POWER_UP_KINDS.some((k) => k === kind);
+
+// ── Marketplace (player-to-player resale) ─────────────────────────────
+
+/** Listings (and the offers on them) expire this long after listing. */
+export const MARKET_LISTING_DAYS = 7;
+export const MARKET_LISTING_MS = MARKET_LISTING_DAYS * 24 * 60 * 60 * 1000;
+/** Price range as a share of the item's shop price. */
+export const MARKET_MIN_SHARE = 0.5;
+export const MARKET_MAX_SHARE = 3;
+/** Crate exclusives are never sold in the shop, so they get a fixed range. */
+export const MARKET_CRATE_ONLY_RANGE = { min: 5, max: 60 } as const;
+
+/**
+ * Power-ups that can be resold: the ones spent by a stored row (a week's
+ * use or a wish), so a sale can check the charge is unused. Passive ones
+ * (Shield, Mirror, Insurance) are spent by derived effects and stay put.
+ */
+export const MARKET_POWER_UP_KINDS = [
+  ...ACTIVE_POWER_UP_KINDS,
+  WISH_POWER_UP,
+] as const satisfies readonly PowerUpKind[];
+
+/** Whether an item may be listed at all (skill tree rewards never can). */
+export function isTradeable(
+  item: Pick<ShopItem, "skillOnly" | "category" | "powerUp">,
+): boolean {
+  if (item.skillOnly) return false;
+  if (item.category !== "power_up") return true;
+  return MARKET_POWER_UP_KINDS.some((k) => k === item.powerUp);
+}
+
+/** The prices `item` may be listed at (and offered for), inclusive. */
+export function marketPriceRange(item: Pick<ShopItem, "price" | "crateOnly">): {
+  min: number;
+  max: number;
+} {
+  if (item.crateOnly || item.price <= 0) return { ...MARKET_CRATE_ONLY_RANGE };
+  const min = Math.max(1, Math.ceil(item.price * MARKET_MIN_SHARE));
+  return { min, max: Math.max(min, item.price * MARKET_MAX_SHARE) };
+}
 
 // ── Sale windows (limited-time stock and seasonal eggs) ───────────────
 

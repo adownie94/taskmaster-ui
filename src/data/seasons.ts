@@ -138,6 +138,8 @@ export function rowsForSeason(
   ) => forWeeks(list).filter((row) => playerIds.has(row.playerId));
   const forPlayers = <Row extends { playerId: string }>(list: Row[]) =>
     list.filter((row) => playerIds.has(row.playerId));
+  const marketListingRows = inSeason(rows.marketListingRows);
+  const listingIds = new Set(marketListingRows.map((row) => row.id));
   return {
     ...rows,
     playerRows,
@@ -151,7 +153,7 @@ export function rowsForSeason(
     predictionRows: bySeasonPlayers(rows.predictionRows),
     recapRows: forWeeks(rows.recapRows),
     // Wallets are per season: the season's players' purchases, uses on its
-    // weeks, equipped items and grants. The catalogue is site-wide.
+    // weeks, equipped items, grants, item and egg gifts, wishes and skill trees. The catalogue is site-wide.
     coinPurchaseRows: forPlayers(rows.coinPurchaseRows),
     powerUpUseRows: bySeasonPlayers(rows.powerUpUseRows),
     equippedRows: forPlayers(rows.equippedRows),
@@ -159,5 +161,18 @@ export function rowsForSeason(
     entryRows: bySeasonPlayers(rows.entryRows),
     crateOpenRows: forPlayers(rows.crateOpenRows),
     coinGiftRows: inSeason(rows.coinGiftRows),
+    itemGiftRows: forPlayers(rows.itemGiftRows),
+    eggGiftRows: forPlayers(rows.eggGiftRows),
+    wishRows: forPlayers(rows.wishRows),
+    skillPathRows: forPlayers(rows.skillPathRows),
+    skillUnlockRows: forPlayers(rows.skillUnlockRows),
+    miniTaskRows: inSeason(rows.miniTaskRows),
+    miniTaskCompletionRows: inSeason(rows.miniTaskCompletionRows),
+    // The marketplace is per season too: offers go with their listing.
+    marketListingRows,
+    marketOfferRows: rows.marketOfferRows.filter((row) =>
+      listingIds.has(row.listingId),
+    ),
+    marketSaleRows: inSeason(rows.marketSaleRows),
   };
 }

@@ -73,6 +73,27 @@ export const powerUpKind = pgEnum("power_up_kind", [
   "shield",
   "mirror",
   "insurance",
+  // Spent by making a wish (a `wishes` row), never on a week.
+  "wish",
+]);
+export const wishStatus = pgEnum("wish_status", [
+  "pending",
+  "granted",
+  "declined",
+]);
+// `expired` is written lazily (listings also expire by age when read), so a
+// stale open listing never blocks relisting its item.
+export const marketListingStatus = pgEnum("market_listing_status", [
+  "open",
+  "sold",
+  "cancelled",
+  "expired",
+]);
+export const marketOfferStatus = pgEnum("market_offer_status", [
+  "pending",
+  "accepted",
+  "declined",
+  "withdrawn",
 ]);
 export const loadoutSlot = pgEnum("loadout_slot", [
   "pet",
@@ -211,10 +232,7 @@ export const tasks = pgTable(
     // How many entries each player (or squad, on team tasks) may submit;
     // 0 keeps on-site submissions closed. See `task_submissions`.
     maxSubmissions: integer().notNull().default(0),
-    submissionKinds: submissionKind()
-      .array()
-      .notNull()
-      .default(sql`'{}'`),
+    submissionKinds: submissionKind().array().notNull().default(sql`'{}'`),
     // Results night: while held, the week's scores and recorded bonuses stay
     // off the public site; `/live` reveals them one by one (bottom first) up
     // to `resultsRevealCount`, then publishing clears the hold.
@@ -679,18 +697,33 @@ export const shopItems = pgTable(
     // A seasonal egg's exclusive (a crate id from `coin-rules.ts`): it only
     // drops from that egg, and no other egg drops it.
     crateId: text(),
+    // A skill tree reward (see `src/data/skill-trees.ts`): never sold or
+    // dropped by eggs, only granted by unlocking its skill node.
+    skillOnly: boolean().notNull().default(false),
     // Limited-time stock: on sale (and droppable) only between these UK
     // wall-clock times (Europe/London, no zone, like task dates). Unset = open.
     availableFrom: timestamp({ mode: "string" }),
     availableUntil: timestamp({ mode: "string" }),
+    // Limited stock: how many can be bought from the shop each season.
+    // Only direct purchases count (not egg drops, gifts or marketplace
+    // resales). Unset = unlimited.
+    stock: integer(),
     sortOrder: integer().notNull().default(0),
     ...recordedTimestamps(),
   },
   (t) => [
     check("shop_items_price_range", sql`${t.price} between 0 and 10000`),
     check(
+      "shop_items_stock_range",
+      sql`${t.stock} is null or ${t.stock} between 0 and 10000`,
+    ),
+    check(
       "shop_items_crate_id_crate_only",
       sql`${t.crateId} is null or ${t.crateOnly}`,
+    ),
+    check(
+      "shop_items_skill_only_not_crate_only",
+      sql`not (${t.skillOnly} and ${t.crateOnly})`,
     ),
     check(
       "shop_items_sale_window_order",
@@ -788,11 +821,12 @@ export const powerUpUses = pgTable(
       "power_up_uses_not_self",
       sql`${t.targetPlayerId} is distinct from ${t.playerId}`,
     ),
-    // Shield, Mirror and Insurance are passive. Compared as text so the
-    // check doesn't use the enum values added in the same migration.
+    // Shield, Mirror and Insurance are passive, and a wish is spent on a
+    // `wishes` row. Compared as text so the check doesn't use the enum
+    // values added in the same migration.
     check(
       "power_up_uses_active_effect",
-      sql`${t.effect}::text not in ('shield', 'mirror', 'insurance')`,
+      sql`${t.effect}::text not in ('shield', 'mirror', 'insurance', 'wish')`,
     ),
     index("power_up_uses_task_id_idx").on(t.taskId),
     index("power_up_uses_target_player_id_idx").on(t.targetPlayerId),
@@ -846,6 +880,82 @@ export const coinAdjustments = pgTable(
       sql`${t.amount} <> 0 and ${t.amount} between -10000 and 10000`,
     ),
     index("coin_adjustments_player_id_idx").on(t.playerId),
+  ],
+);
+
+/**
+ * A shop item (pet, avatar, cosmetic or power-up) an admin gifted a player.
+ * Like a crate win, it's owned through `purchaseId`, a zero-price
+ * `coin_purchases` row written in the same statement, so ownership works
+ * exactly like buying. The actor's name is copied in, like
+ * `coin_adjustments`.
+ */
+export const itemGifts = pgTable(
+  "item_gifts",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    playerId: text()
+      .notNull()
+      .references(() => players.id, { onDelete: "cascade" }),
+    itemId: text()
+      .notNull()
+      .references(() => shopItems.id, { onDelete: "restrict" }),
+    purchaseId: integer()
+      .notNull()
+      .unique("item_gifts_purchase_id_unique")
+      .references(() => coinPurchases.id, { onDelete: "cascade" }),
+    reason: text().notNull(),
+    actorId: text().notNull(),
+    actorName: text().notNull(),
+    createdAt: timestamp({ withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("item_gifts_player_id_idx").on(t.playerId),
+    index("item_gifts_item_id_idx").on(t.itemId),
+  ],
+);
+
+/**
+ * A wish made with the One Wish Willow power-up: its `purchaseId` is the
+ * charge it spent (so one wish per charge). The Taskmaster grants or
+ * declines it from the admin dashboard; either way it's spent. The
+ * decider's name is copied in, like `coin_adjustments`.
+ */
+export const wishes = pgTable(
+  "wishes",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    purchaseId: integer()
+      .notNull()
+      .unique("wishes_purchase_id_unique")
+      .references(() => coinPurchases.id, { onDelete: "cascade" }),
+    playerId: text()
+      .notNull()
+      .references(() => players.id, { onDelete: "cascade" }),
+    wish: text().notNull(),
+    status: wishStatus().notNull().default("pending"),
+    // The Taskmaster's reply, shown to the player with the decision.
+    response: text(),
+    deciderId: text(),
+    deciderName: text(),
+    decidedAt: timestamp({ withTimezone: true, mode: "string" }),
+    createdAt: timestamp({ withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check("wishes_wish_length", sql`char_length(${t.wish}) between 1 and 200`),
+    check(
+      "wishes_response_length",
+      sql`${t.response} is null or char_length(${t.response}) <= 200`,
+    ),
+    check(
+      "wishes_decided_when_not_pending",
+      sql`(${t.status} = 'pending') = (${t.decidedAt} is null)`,
+    ),
+    index("wishes_player_id_idx").on(t.playerId),
   ],
 );
 
@@ -927,6 +1037,287 @@ export const crateOpens = pgTable(
     ),
     index("crate_opens_player_id_idx").on(t.playerId),
     index("crate_opens_item_id_idx").on(t.itemId),
+  ],
+);
+
+/**
+ * A mystery egg (a crate from `coin-rules.ts`, by `crateId`) an admin gifted
+ * a player. It sits unopened in their inventory until they crack it, which
+ * writes a free `crate_opens` row and links it here (`crateOpenId`), in one
+ * statement under the wallet lock. The actor's name is copied in, like
+ * `item_gifts`.
+ */
+export const eggGifts = pgTable(
+  "egg_gifts",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    playerId: text()
+      .notNull()
+      .references(() => players.id, { onDelete: "cascade" }),
+    crateId: text().notNull(),
+    reason: text().notNull(),
+    actorId: text().notNull(),
+    actorName: text().notNull(),
+    crateOpenId: integer()
+      .unique("egg_gifts_crate_open_id_unique")
+      .references(() => crateOpens.id, { onDelete: "cascade" }),
+    createdAt: timestamp({ withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("egg_gifts_player_id_idx").on(t.playerId)],
+);
+
+/**
+ * A player-to-player marketplace listing: one owned copy (`purchaseId`, the
+ * seller's `coin_purchases` row) for sale at a fixed price. Open listings
+ * also expire by age (`MARKET_LISTING_DAYS` in `coin-rules.ts`), derived
+ * when read; `expired` is only written when the item is relisted. An admin
+ * cancelling one has their name copied in, like `coin_adjustments`.
+ */
+export const marketListings = pgTable(
+  "market_listings",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    seasonId: seasonId(),
+    sellerId: text().notNull(),
+    purchaseId: integer()
+      .notNull()
+      .references(() => coinPurchases.id, { onDelete: "cascade" }),
+    // Copied from the purchase so listings can be browsed by item.
+    itemId: text()
+      .notNull()
+      .references(() => shopItems.id, { onDelete: "restrict" }),
+    price: integer().notNull(),
+    status: marketListingStatus().notNull().default("open"),
+    cancelledByName: text(),
+    createdAt: timestamp({ withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    closedAt: timestamp({ withTimezone: true, mode: "string" }),
+  },
+  (t) => [
+    foreignKey({
+      name: "market_listings_seller_season_fk",
+      columns: [t.sellerId, t.seasonId],
+      foreignColumns: [players.id, players.seasonId],
+    }).onDelete("cascade"),
+    uniqueIndex("market_listings_one_open_per_purchase_idx")
+      .on(t.purchaseId)
+      .where(sql`${t.status} = 'open'`),
+    check("market_listings_price_range", sql`${t.price} between 1 and 30000`),
+    check(
+      "market_listings_closed_when_not_open",
+      sql`(${t.status} = 'open') = (${t.closedAt} is null)`,
+    ),
+    index("market_listings_seller_id_idx").on(t.sellerId),
+    index("market_listings_item_id_idx").on(t.itemId),
+  ],
+);
+
+/**
+ * An offer below a listing's price. Pending offers hold the buyer's coins
+ * (derived: they're taken off what they can spend) until the seller accepts
+ * or declines, the buyer withdraws, or the listing closes or expires. One
+ * pending offer per buyer per listing; offering again replaces it.
+ */
+export const marketOffers = pgTable(
+  "market_offers",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    listingId: integer()
+      .notNull()
+      .references(() => marketListings.id, { onDelete: "cascade" }),
+    buyerId: text()
+      .notNull()
+      .references(() => players.id, { onDelete: "cascade" }),
+    amount: integer().notNull(),
+    status: marketOfferStatus().notNull().default("pending"),
+    createdAt: timestamp({ withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    decidedAt: timestamp({ withTimezone: true, mode: "string" }),
+  },
+  (t) => [
+    uniqueIndex("market_offers_one_pending_per_buyer_idx")
+      .on(t.listingId, t.buyerId)
+      .where(sql`${t.status} = 'pending'`),
+    check("market_offers_amount_positive", sql`${t.amount} > 0`),
+    check(
+      "market_offers_decided_when_not_pending",
+      sql`(${t.status} = 'pending') = (${t.decidedAt} is null)`,
+    ),
+    index("market_offers_buyer_id_idx").on(t.buyerId),
+  ],
+);
+
+/**
+ * A completed marketplace sale. The seller's copy (`sourcePurchaseId`) stops
+ * being theirs, and the buyer owns the item through `buyerPurchaseId`, a
+ * zero-price `coin_purchases` row written in the same statement, like crate
+ * wins. `price` moves from the buyer's wallet to the seller's (derived).
+ */
+export const marketSales = pgTable(
+  "market_sales",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    seasonId: seasonId(),
+    listingId: integer()
+      .notNull()
+      .unique("market_sales_listing_id_unique")
+      .references(() => marketListings.id, { onDelete: "cascade" }),
+    sellerId: text().notNull(),
+    buyerId: text().notNull(),
+    itemId: text()
+      .notNull()
+      .references(() => shopItems.id, { onDelete: "restrict" }),
+    price: integer().notNull(),
+    sourcePurchaseId: integer()
+      .notNull()
+      .unique("market_sales_source_purchase_id_unique")
+      .references(() => coinPurchases.id, { onDelete: "cascade" }),
+    buyerPurchaseId: integer()
+      .notNull()
+      .unique("market_sales_buyer_purchase_id_unique")
+      .references(() => coinPurchases.id, { onDelete: "cascade" }),
+    // Set when the sale was an accepted offer.
+    offerId: integer().references(() => marketOffers.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp({ withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: "market_sales_seller_season_fk",
+      columns: [t.sellerId, t.seasonId],
+      foreignColumns: [players.id, players.seasonId],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "market_sales_buyer_season_fk",
+      columns: [t.buyerId, t.seasonId],
+      foreignColumns: [players.id, players.seasonId],
+    }).onDelete("cascade"),
+    check("market_sales_not_self", sql`${t.sellerId} <> ${t.buyerId}`),
+    check("market_sales_price_positive", sql`${t.price} > 0`),
+    index("market_sales_seller_id_idx").on(t.sellerId),
+    index("market_sales_buyer_id_idx").on(t.buyerId),
+    index("market_sales_item_id_idx").on(t.itemId),
+  ],
+);
+
+/**
+ * The skill pathway a player committed to: one per player (players are per
+ * season), written with their first unlock and never changed (no respec).
+ * The pathways are defined in code (`src/data/skill-trees.ts`).
+ */
+export const skillPaths = pgTable(
+  "skill_paths",
+  {
+    playerId: text()
+      .primaryKey()
+      .references(() => players.id, { onDelete: "cascade" }),
+    pathId: text().notNull(),
+    createdAt: timestamp({ withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("skill_paths_player_id_path_id_unique").on(t.playerId, t.pathId),
+  ],
+);
+
+/**
+ * A skill node a player unlocked, at the price paid then. The composite key
+ * keeps every unlock in the player's one pathway. A node that grants a
+ * cosmetic owns it through `purchaseId`, a zero-price `coin_purchases` row
+ * written in the same statement, like crate wins.
+ */
+export const skillUnlocks = pgTable(
+  "skill_unlocks",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    playerId: text().notNull(),
+    pathId: text().notNull(),
+    nodeId: text().notNull(),
+    price: integer().notNull(),
+    purchaseId: integer()
+      .unique("skill_unlocks_purchase_id_unique")
+      .references(() => coinPurchases.id, { onDelete: "cascade" }),
+    createdAt: timestamp({ withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: "skill_unlocks_player_path_fk",
+      columns: [t.playerId, t.pathId],
+      foreignColumns: [skillPaths.playerId, skillPaths.pathId],
+    }).onDelete("cascade"),
+    unique("skill_unlocks_player_id_node_id_unique").on(t.playerId, t.nodeId),
+    check("skill_unlocks_price_positive", sql`${t.price} >= 0`),
+  ],
+);
+
+// ── Mini-tasks ────────────────────────────────────────────────────────
+
+/**
+ * A small daily or bonus challenge between the weekly tasks, worth a little
+ * Clim Coin. It runs from `startsOn` to `endsOn` (UK dates, inclusive); an
+ * admin ticks off who completed it, and the reward is derived from those
+ * completions (see `deriveEarnings`), never stored as a balance.
+ */
+export const miniTasks = pgTable(
+  "mini_tasks",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    seasonId: seasonId(),
+    title: text().notNull(),
+    description: text().notNull().default(""),
+    reward: integer().notNull(),
+    startsOn: date({ mode: "string" }).notNull(),
+    endsOn: date({ mode: "string" }).notNull(),
+    ...recordedTimestamps(),
+  },
+  (t) => [
+    unique("mini_tasks_id_season_id_unique").on(t.id, t.seasonId),
+    check("mini_tasks_reward_range", sql`${t.reward} between 1 and 5`),
+    check("mini_tasks_ends_after_start", sql`${t.endsOn} >= ${t.startsOn}`),
+    index("mini_tasks_season_id_starts_on_idx").on(t.seasonId, t.startsOn),
+  ],
+);
+
+/**
+ * A player an admin marked as having completed a mini-task. The composite
+ * keys keep the player in the mini-task's season. The actor's name is copied
+ * in, like `coin_adjustments`.
+ */
+export const miniTaskCompletions = pgTable(
+  "mini_task_completions",
+  {
+    miniTaskId: integer().notNull(),
+    playerId: text().notNull(),
+    seasonId: seasonId(),
+    actorId: text().notNull(),
+    actorName: text().notNull(),
+    createdAt: timestamp({ withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.miniTaskId, t.playerId] }),
+    foreignKey({
+      name: "mini_task_completions_task_season_fk",
+      columns: [t.miniTaskId, t.seasonId],
+      foreignColumns: [miniTasks.id, miniTasks.seasonId],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "mini_task_completions_player_season_fk",
+      columns: [t.playerId, t.seasonId],
+      foreignColumns: [players.id, players.seasonId],
+    }).onDelete("cascade"),
+    index("mini_task_completions_player_id_idx").on(t.playerId),
   ],
 );
 

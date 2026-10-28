@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { createCoinQueries } from "./coin-queries";
-import type { CoinGift, CoinPurchase, PowerUpUse, ShopItem } from "../types";
+import type {
+  CoinGift,
+  CoinPurchase,
+  PowerUpUse,
+  ShopItem,
+  Wish,
+} from "../types";
 import {
   coinData,
   competitionData,
@@ -74,7 +80,15 @@ function setup({
   return createCoinQueries(
     competitionData({
       season: season({ status: closed ? "closed" : "running" }),
-      features: { shop_eggs: eggs, pool_bracket: false },
+      features: {
+        shop_eggs: eggs,
+        storm_mode: false,
+        skill_trees: false,
+        mini_tasks: false,
+        achievements: false,
+        marketplace: false,
+        pool_bracket: false,
+      },
       players: [player("ann", "Ann"), player("bob", "Bob"), player("cat")],
       tasks: [done, live],
       predictions: [
@@ -154,6 +168,89 @@ describe("purchase blocks", () => {
   });
 });
 
+describe("limited stock", () => {
+  const gem = shopItem({ id: "gem", name: "Gem", price: 5, stock: 2 });
+  function stocked(coins: Parameters<typeof coinData>[0]) {
+    return createCoinQueries(
+      competitionData({
+        players: [player("ann"), player("bob"), player("cat")],
+        coins: coinData({
+          items: [gem, duck],
+          adjustments: ["ann", "bob", "cat"].map((playerId, i) => ({
+            id: i + 1,
+            playerId,
+            amount: 20,
+            reason: "Starter coins",
+            actorName: "Taskmaster",
+            at: "2026-01-10T00:00:00.000Z",
+          })),
+          ...coins,
+        }),
+      }),
+    );
+  }
+  const listingOf = (q: ReturnType<typeof stocked>, playerId?: string) =>
+    q
+      .getShopSections({ playerId })
+      .flatMap((s) => s.listings)
+      .find((l) => l.item.id === "gem");
+
+  it("counts down shop sales and sells out", () => {
+    const first = bought("ann", gem);
+    const one = stocked({ purchases: [first] });
+    expect(one.getStockLeft(gem)).toBe(1);
+    expect(one.getStockLeft(duck)).toBeUndefined();
+    expect(listingOf(one, "bob")).toMatchObject({ remaining: 1 });
+    expect(listingOf(one, "bob")?.blocked).toBeUndefined();
+
+    const gone = stocked({ purchases: [first, bought("bob", gem)] });
+    expect(gone.getStockLeft(gem)).toBe(0);
+    expect(gone.getPurchaseBlock(gem, { playerId: "cat" })).toBe("sold-out");
+    // Owners still see it as theirs.
+    expect(gone.getPurchaseBlock(gem, { playerId: "ann" })).toBe("owned");
+    expect(listingOf(gone)).toMatchObject({ remaining: 0 });
+  });
+
+  it("doesn't count egg drops, gifts or marketplace resales", () => {
+    const sale = bought("ann", gem);
+    const hatched = { ...bought("bob", gem), price: 0 };
+    const resold = { ...bought("cat", gem), price: 0 };
+    const q = stocked({
+      purchases: [sale, hatched, resold],
+      crateOpens: [
+        {
+          id: 1,
+          purchaseId: hatched.id,
+          playerId: "bob",
+          crateId: "basic",
+          price: 5,
+          itemId: "gem",
+          rarity: "common",
+          at: "2026-01-13T00:00:00.000Z",
+        },
+      ],
+      market: {
+        listings: [],
+        offers: [],
+        sales: [
+          {
+            id: 1,
+            listingId: 1,
+            sellerId: "ann",
+            buyerId: "cat",
+            itemId: "gem",
+            price: 9,
+            sourcePurchaseId: sale.id,
+            buyerPurchaseId: resold.id,
+            at: "2026-01-14T00:00:00.000Z",
+          },
+        ],
+      },
+    });
+    expect(q.getStockLeft(gem)).toBe(1);
+  });
+});
+
 describe("loadout and inventory", () => {
   it("only wears items the player still owns, in their slot", () => {
     const q = setup({ purchases: [bought("ann", duck), bought("ann", amber)] });
@@ -200,7 +297,13 @@ describe("loadout and inventory", () => {
       "power_up",
     ]);
     expect(sections[0].listings).toEqual([
-      { item: duck, owned: true, charges: 0, blocked: "owned" },
+      {
+        item: duck,
+        price: duck.price,
+        owned: true,
+        charges: 0,
+        blocked: "owned",
+      },
     ]);
   });
 });
@@ -337,7 +440,15 @@ describe("crates", () => {
   it("lists pulls publicly and reveals one only to its opener", () => {
     const q = createCoinQueries(
       competitionData({
-        features: { shop_eggs: true, pool_bracket: false },
+        features: {
+          shop_eggs: true,
+          storm_mode: false,
+          skill_trees: false,
+          mini_tasks: false,
+          achievements: false,
+          marketplace: false,
+          pool_bracket: false,
+        },
         players: [player("ann", "Ann"), player("bob")],
         coins: coinData({
           items: [exclusive],
@@ -468,7 +579,15 @@ describe("limited-time stock", () => {
   });
   const q = createCoinQueries(
     competitionData({
-      features: { shop_eggs: true, pool_bracket: false },
+      features: {
+        shop_eggs: true,
+        storm_mode: false,
+        skill_trees: false,
+        mini_tasks: false,
+        achievements: false,
+        marketplace: false,
+        pool_bracket: false,
+      },
       players: [player("ann")],
       coins: coinData({
         items: [duck, later, hat, egged],
@@ -523,6 +642,149 @@ describe("limited-time stock", () => {
         .flatMap((s) => s.listings.map((l) => l.item.id));
     expect(listed(NOW)).not.toContain("bat");
     expect(listed(halloween)).toContain("bat");
+  });
+});
+
+describe("one wish willow", () => {
+  const willow = shopItem({
+    id: "willow",
+    name: "One Wish Willow",
+    category: "power_up",
+    price: 10,
+    powerUp: "wish",
+  });
+  const charge: CoinPurchase = {
+    id: 50,
+    playerId: "ann",
+    itemId: "willow",
+    price: 10,
+    at: "2026-01-13T00:00:00.000Z",
+  };
+  const made: Wish = {
+    id: 1,
+    purchaseId: 50,
+    playerId: "ann",
+    wish: "An extra day",
+    status: "pending",
+    at: "2026-01-14T00:00:00.000Z",
+  };
+  const queries = (wishes: Wish[] = [], closed = false) =>
+    createCoinQueries(
+      competitionData({
+        season: season({ status: closed ? "closed" : "running" }),
+        players: [player("ann", "Ann"), player("bob", "Bob")],
+        tasks: [done, live],
+        coins: coinData({ items: [willow], purchases: [charge], wishes }),
+      }),
+    );
+
+  it("lets a holder make one wish, any time", () => {
+    expect(queries().getWishPanel("ann")).toEqual({ charges: 1, wishes: [] });
+    expect(queries().getWishPanel("bob")).toEqual({
+      charges: 0,
+      blocked: "no-charge",
+      wishes: [],
+    });
+    expect(queries([], true).getWishPanel("ann").blocked).toBe("season-closed");
+  });
+
+  it("spends the charge on the wish, and can't be bought again", () => {
+    const q = queries([made]);
+    expect(q.getWishPanel("ann")).toEqual({
+      charges: 0,
+      blocked: "no-charge",
+      wishes: [made],
+    });
+    expect(q.getPurchaseBlock(willow, { playerId: "ann" })).toBe("used");
+    expect(q.getWishPanel("bob").wishes).toEqual([]);
+  });
+
+  it("isn't a power-up used on a week", () => {
+    expect(
+      queries()
+        .getPowerUpPanel("ann")
+        .options.map((o) => o.effect),
+    ).toEqual([]);
+  });
+});
+
+describe("admin item gifts", () => {
+  const crateOnly = shopItem({
+    id: "egg-pet",
+    name: "Egg Pet",
+    crateOnly: true,
+  });
+  const charge = (id: number, item: ShopItem): CoinPurchase => ({
+    id,
+    playerId: "ann",
+    itemId: item.id,
+    price: 0,
+    at: "2026-01-13T00:00:00.000Z",
+  });
+  const gift = (id: number, purchase: CoinPurchase) => ({
+    id,
+    purchaseId: purchase.id,
+    playerId: purchase.playerId,
+    itemId: purchase.itemId,
+    reason: "Well played",
+    actorName: "Taskmaster",
+    at: purchase.at,
+  });
+  const queries = (purchases: CoinPurchase[], uses: PowerUpUse[] = []) =>
+    createCoinQueries(
+      competitionData({
+        players: [player("ann", "Ann"), player("bob", "Bob")],
+        tasks: [done, live],
+        coins: coinData({
+          items: [duck, robot, sabotage, hint, retired, crateOnly],
+          purchases,
+          uses,
+          itemGifts: purchases.map((p, i) => gift(i + 1, p)),
+        }),
+      }),
+    );
+
+  it("offers anything not owned, retired and egg exclusives included", () => {
+    const groups = queries([
+      charge(1, duck),
+      charge(2, sabotage),
+    ]).getGiftableItems("ann");
+    expect(groups.map((g) => [g.category, g.items.map((i) => i.id)])).toEqual([
+      ["pet", ["old", "egg-pet"]],
+      ["avatar", ["robot"]],
+      ["power_up", ["hint"]],
+    ]);
+  });
+
+  it("lists a player's gifts newest first, flagging spent charges", () => {
+    const sab = charge(2, sabotage);
+    const gifts = queries(
+      [charge(1, duck), sab],
+      [
+        {
+          id: 1,
+          purchaseId: sab.id,
+          playerId: "ann",
+          taskId: "w2",
+          effect: "sabotage",
+          targetPlayerId: "bob",
+          at: "2026-01-14T00:00:00.000Z",
+        },
+      ],
+    ).getItemGifts("ann");
+    expect(gifts.map((g) => [g.item.id, g.spent])).toEqual([
+      ["sabotage", true],
+      ["duck", false],
+    ]);
+    expect(queries([charge(1, duck)]).getItemGifts("bob")).toEqual([]);
+  });
+
+  it("gives the gifted item and power-up charge like a purchase", () => {
+    const q = queries([charge(1, duck), charge(2, hint)]);
+    expect(q.getInventory("ann").map((i) => [i.item.id, i.charges])).toEqual([
+      ["duck", 0],
+      ["hint", 1],
+    ]);
   });
 });
 
@@ -625,5 +887,86 @@ describe("mystery eggs feature flag", () => {
       "mystery-egg",
     );
     expect(setup({ eggs: false }).getCrateViews({})).toEqual([]);
+  });
+});
+
+describe("gifted eggs", () => {
+  const eggsFlag = (shop_eggs: boolean) => ({
+    shop_eggs,
+    storm_mode: false,
+    skill_trees: false,
+    mini_tasks: false,
+    achievements: false,
+    marketplace: false,
+    pool_bracket: false,
+  });
+  const gift = (id: number, crateId: string, crateOpenId?: number) => ({
+    id,
+    playerId: "ann",
+    crateId,
+    reason: "Well played",
+    actorName: "Taskmaster",
+    ...(crateOpenId !== undefined && { crateOpenId }),
+    at: "2026-01-13T00:00:00.000Z",
+  });
+  const queries = (eggs = true) =>
+    createCoinQueries(
+      competitionData({
+        features: eggsFlag(eggs),
+        players: [player("ann", "Ann"), player("bob")],
+        coins: coinData({
+          items: [duck, robot],
+          purchases: [bought("ann", duck)],
+          crateOpens: [
+            {
+              id: 7,
+              purchaseId: 1,
+              playerId: "ann",
+              crateId: "mystery-egg",
+              price: 0,
+              itemId: "duck",
+              rarity: "rare",
+              at: "2026-01-14T00:00:00.000Z",
+            },
+          ],
+          eggGifts: [
+            gift(1, "mystery-egg", 7),
+            gift(2, "mystery-egg"),
+            gift(3, "faberge-egg"),
+            gift(4, "no-such-egg"),
+          ],
+        }),
+      }),
+    );
+
+  it("lists unopened eggs with the player's own odds, free to open", () => {
+    const [mystery, faberge, ...rest] = queries().getUnopenedEggs("ann");
+    expect(rest).toEqual([]);
+    expect(mystery.gift.id).toBe(2);
+    // Ann owns the duck, so only the robot is left in the Mystery Egg.
+    expect(
+      mystery.tiers.map((t) => [t.rarity, t.drops.map((d) => d.item.id)]),
+    ).toEqual([["common", ["robot"]]]);
+    expect(mystery.blocked).toBeUndefined();
+    // Nothing rare or better is left, so the Fabergé egg can't hatch.
+    expect(faberge.gift.id).toBe(3);
+    expect(faberge.blocked).toBe("empty");
+    expect(queries().getUnopenedEggs("bob")).toEqual([]);
+  });
+
+  it("hides unopened eggs while mystery eggs are off", () => {
+    expect(queries(false).getUnopenedEggs("ann")).toEqual([]);
+  });
+
+  it("lists every gifted egg for admins, newest first, with what hatched", () => {
+    expect(
+      queries(false)
+        .getEggGifts("ann")
+        .map((g) => [g.gift.id, g.crate.id, g.hatched?.id]),
+    ).toEqual([
+      [3, "faberge-egg", undefined],
+      [2, "mystery-egg", undefined],
+      [1, "mystery-egg", "duck"],
+    ]);
   });
 });

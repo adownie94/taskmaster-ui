@@ -3,6 +3,7 @@ import type { PollRecord } from "../data/admin";
 import { toWallClock } from "./time";
 import type { FeatureFlagKey, SubmissionOutcome } from "../types";
 import { FEATURE_FLAG_KEYS } from "../data/feature-flags";
+import { MINI_TASK_MAX_REWARD } from "../data/mini-tasks";
 import {
   COSMETIC_KINDS,
   CRATES,
@@ -10,6 +11,7 @@ import {
   POWER_UP_KINDS,
   PROFILE_THEMES,
   SHOP_CATEGORIES,
+  WISH_MAX,
 } from "../data/coin-rules";
 import {
   MAX_CAPTION_LENGTH,
@@ -32,7 +34,8 @@ export type FormValues = Record<string, string>;
 export type FieldErrors = Record<string, string>;
 
 export type ParseResult<T> = { values: FormValues } & (
-  { ok: true; data: T } | { ok: false; errors: FieldErrors }
+  | { ok: true; data: T }
+  | { ok: false; errors: FieldErrors }
 );
 
 /** Raw string values from a form (first value per name). */
@@ -581,7 +584,8 @@ export function parseChangelogForm(
 // ── Entries added for a player ────────────────────────────────────────
 
 export type AddEntryInput = { playerId: string } & (
-  { kind: "text"; text: string } | { kind: "photo"; photo: PhotoEntryInput }
+  | { kind: "text"; text: string }
+  | { kind: "photo"; photo: PhotoEntryInput }
 );
 
 const photoErrors: Partial<Record<SubmissionOutcome, string>> = {
@@ -984,6 +988,20 @@ const optionalLocalDateTime = z
   .refine((v) => v === "" || DATE_TIME_LOCAL.test(v), "Enter a date and time.")
   .transform((v) => (v === "" ? null : toWallClockTimestamp(v)));
 
+/** A shop item's stock per season: blank means unlimited. */
+const optionalStock = z
+  .string()
+  .trim()
+  .transform((v) => (v === "" ? null : Number(v)))
+  .pipe(
+    z
+      .number({ error: "Enter a whole number." })
+      .int("Enter a whole number.")
+      .min(0, "Must be 0 or more.")
+      .max(10000, "Keep it to 10000 or less.")
+      .nullable(),
+  );
+
 const shopItemSchema = z
   .object({
     id: slug,
@@ -1011,6 +1029,7 @@ const shopItemSchema = z
     crateId: blankToNull,
     availableFrom: optionalLocalDateTime,
     availableUntil: optionalLocalDateTime,
+    stock: optionalStock,
     sortOrder: optionalOrder,
   })
   .superRefine((item, ctx) => {
@@ -1018,6 +1037,9 @@ const shopItemSchema = z
       ctx.addIssue({ code: "custom", path: [path], message });
     if (item.crateOnly && item.category === "power_up") {
       issue("crateOnly", "Power-ups can't be egg exclusives.");
+    }
+    if (item.crateOnly && item.stock !== null) {
+      issue("stock", "Egg exclusives aren't sold in the shop: leave it blank.");
     }
     if (item.crateId !== null) {
       if (!CRATES.some((c) => c.exclusive && c.id === item.crateId)) {
@@ -1104,6 +1126,7 @@ export function parseShopItemForm(form: FormData): ParseResult<ShopItemInput> {
       crateId: values.crateId ?? "",
       availableFrom: values.availableFrom ?? "",
       availableUntil: values.availableUntil ?? "",
+      stock: values.stock ?? "",
       sortOrder: values.sortOrder ?? "",
     },
     {
@@ -1148,6 +1171,147 @@ export function parseCoinAdjustmentForm(
   return parseWith(
     coinAdjustmentSchema,
     { amount: values.amount ?? "", reason: values.reason ?? "" },
+    values,
+  );
+}
+
+// ── Mini-tasks ────────────────────────────────────────────────────────
+
+const calendarDate = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date.")
+  .refine(
+    (v) =>
+      !Number.isNaN(Date.parse(v)) &&
+      new Date(v).toISOString().slice(0, 10) === v,
+    "Pick a real date.",
+  );
+
+const miniTaskSchema = z
+  .object({
+    title: requiredText(80),
+    description: z.string().trim().max(300, "Keep it under 300 characters."),
+    reward: integer().pipe(
+      z
+        .number()
+        .min(1, "Pay at least 1 Clim Coin.")
+        .max(
+          MINI_TASK_MAX_REWARD,
+          `Mini-tasks pay at most ${MINI_TASK_MAX_REWARD} Clim Coin.`,
+        ),
+    ),
+    startsOn: calendarDate,
+    endsOn: calendarDate,
+  })
+  .refine((v) => v.endsOn >= v.startsOn, {
+    path: ["endsOn"],
+    message: "The last day can't be before the first.",
+  });
+
+export type MiniTaskInput = z.output<typeof miniTaskSchema>;
+
+/** A mini-task's title, reward and the days it runs. */
+export function parseMiniTaskForm(form: FormData): ParseResult<MiniTaskInput> {
+  const values = formValues(form);
+  return parseWith(
+    miniTaskSchema,
+    {
+      title: values.title ?? "",
+      description: values.description ?? "",
+      reward: values.reward ?? "",
+      startsOn: values.startsOn ?? "",
+      endsOn: values.endsOn ?? "",
+    },
+    values,
+  );
+}
+
+/** The players ticked on a mini-task's completion checklist (deduplicated). */
+export function parseMiniTaskCompletionsForm(form: FormData): string[] {
+  return [
+    ...new Set(
+      form
+        .getAll("playerId")
+        .filter((v): v is string => typeof v === "string")
+        .map((v) => v.trim())
+        .filter((v) => v !== ""),
+    ),
+  ];
+}
+
+const itemGiftSchema = z.object({
+  itemId: z.string().trim().min(1, "Pick an item to gift."),
+  reason: requiredText(200),
+});
+
+export type ItemGiftInput = z.output<typeof itemGiftSchema>;
+
+/**
+ * An admin gifting a player a shop item (pet, avatar, cosmetic or power-up).
+ * The note is posted as `giftReason`, so its field id doesn't clash with the
+ * coin form's `reason` on the same page.
+ */
+export function parseItemGiftForm(form: FormData): ParseResult<ItemGiftInput> {
+  const values = formValues(form);
+  return parseWith(
+    itemGiftSchema,
+    { itemId: values.itemId ?? "", reason: values.giftReason ?? "" },
+    values,
+  );
+}
+
+const eggGiftSchema = z.object({
+  crateId: z
+    .string()
+    .trim()
+    .refine(
+      (id) => CRATES.some((crate) => crate.id === id),
+      "Pick an egg to gift.",
+    ),
+  reason: requiredText(200),
+});
+
+export type EggGiftInput = z.output<typeof eggGiftSchema>;
+
+/**
+ * An admin gifting a player a mystery egg to crack from their inventory.
+ * The note is posted as `eggReason`, so its field id doesn't clash with the
+ * other gift forms on the same page.
+ */
+export function parseEggGiftForm(form: FormData): ParseResult<EggGiftInput> {
+  const values = formValues(form);
+  return parseWith(
+    eggGiftSchema,
+    { crateId: values.crateId ?? "", reason: values.eggReason ?? "" },
+    values,
+  );
+}
+
+const wishDecisionSchema = z.object({
+  rowId: z.coerce.number().int().positive(),
+  decision: z.enum(["granted", "declined"]),
+  response: z
+    .string()
+    .trim()
+    .max(WISH_MAX, `Keep it under ${WISH_MAX} characters.`)
+    .transform((v) => (v === "" ? null : v.replace(/\s+/g, " "))),
+});
+
+export type WishDecisionInput = z.output<typeof wishDecisionSchema>;
+
+/** The Taskmaster granting or declining a wish, with an optional reply. */
+export function parseWishDecisionForm(
+  form: FormData,
+): ParseResult<WishDecisionInput> {
+  const values = formValues(form);
+  return parseWith(
+    wishDecisionSchema,
+    {
+      rowId: values.rowId ?? "",
+      decision: values.decision ?? "",
+      response: values.response ?? "",
+    },
     values,
   );
 }

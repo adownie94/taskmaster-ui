@@ -6,6 +6,7 @@ import AdminLayout from "../../layouts/AdminLayout.astro";
 import TerminalWindow from "../../components/TerminalWindow.astro";
 import { weekStepState } from "../../components/admin/styles";
 import {
+  ADMIN_ACTIVITY,
   ADMIN_GUIDE,
   ADMIN_HOME,
   ADMIN_ROSTER,
@@ -25,7 +26,8 @@ const contents = [
   { id: "markers", label: "reading the progress markers" },
   { id: "seasons", label: "seasons and the Hall of Fame" },
   { id: "roster", label: "players, accounts and squads" },
-  { id: "site", label: "polls, changelog and the shop" },
+  { id: "site", label: "polls, mini-tasks, changelog and the shop" },
+  { id: "activity", label: "the activity log" },
   { id: "good-to-know", label: "good to know" },
 ];
 
@@ -33,7 +35,7 @@ const areas = [
   {
     href: ADMIN_HOME,
     label: "dashboard",
-    what: "What needs doing now: the live week, any finished week that still needs judging or publishing, and the next week to be released. Each has a button for its next step. It also tells you when a season is ready to close or the next one is ready to launch.",
+    what: "What needs doing now: the live week, any finished week that still needs judging or publishing, and the next week to be released. Each has a button for its next step. It also tells you when a season is ready to close or the next one is ready to launch, and holds the One Wish Willow inbox.",
   },
   {
     href: ADMIN_SEASONS,
@@ -53,7 +55,12 @@ const areas = [
   {
     href: ADMIN_SITE,
     label: "site",
-    what: "Homepage polls and the what's new changelog.",
+    what: "Feature flags, homepage polls, mini-tasks, the what's new changelog and the Clim Coin shop.",
+  },
+  {
+    href: ADMIN_ACTIVITY,
+    label: "activity",
+    what: "One timeline of everything that moved points or Clim Coin in a season, filterable by kind and player. Use it to settle disputes.",
   },
   {
     href: ADMIN_GUIDE,
@@ -372,7 +379,9 @@ const link = "text-cyan hover:underline";
         weeks as usual. The public site doesn't see any of it yet.
       </li>
       <li>
-        <span class="font-bold text-acid">4.</span> Open the new season and press
+        <span class="font-bold text-acid">4.</span> Open the new season and press{
+          " "
+        }
         <span class="text-ink">make current</span> to launch it. The old season's
         player, squad, task and recap pages stay online as an archive.
       </li>
@@ -444,10 +453,17 @@ const link = "text-cyan hover:underline";
 
   <section id="site" aria-labelledby="site-heading" class="mt-12 scroll-mt-24">
     <h2 id="site-heading" class={h2}>
-      <span class="text-acid">#</span> polls, changelog and the shop
+      <span class="text-acid">#</span> polls, mini-tasks, changelog and the shop
     </h2>
     <p class={lead}>
-      All in <a href={withBase(ADMIN_SITE)} class={link}>site</a>.
+      All in <a href={withBase(ADMIN_SITE)} class={link}>site</a>. Its{" "}
+      <a href={withBase("/admin/site#flags")} class={link}>feature flags</a>{
+        " "
+      }
+      switch features on or off for everyone at once. Turn on{" "}
+      <span class="text-ink">storm mode</span> to put the public site in the middle
+      of a hurricane (&ldquo;A Storm Is Brewing&rdquo;); admin pages stay calm, and
+      turning it off clears the weather straight away.
     </p>
     <div class="mt-4 grid gap-4 lg:grid-cols-2">
       <TerminalWindow title="~/guide/polls">
@@ -464,10 +480,39 @@ const link = "text-cyan hover:underline";
             (read-only) in that week's judge tab.
           </li>
           <li>
-            <span class="text-cyan" aria-hidden="true">&gt;</span> Use
-            <span class="text-ink">+ every player</span> or
+            <span class="text-cyan" aria-hidden="true">&gt;</span> Use{" "}
+            <span class="text-ink">+ every player</span> or{" "}
             <span class="text-ink">+ every team</span> to fill in the options quickly.
             Duplicate copies a poll without its votes.
+          </li>
+        </ul>
+      </TerminalWindow>
+      <TerminalWindow title="~/guide/mini-tasks" class="lg:col-span-2">
+        <ul class="space-y-2 text-sm text-ink-dim">
+          <li>
+            <span class="text-cyan" aria-hidden="true">&gt;</span> Small daily or
+            bonus extras between the weekly tasks, worth 1–5 Clim Coin each. Add one
+            with <span class="text-ink">+ new mini-task</span> in{" "}
+            <a href={withBase("/admin/site#mini-tasks")} class={link}>site</a>:
+            a title, the reward and the first and last day it runs (UK dates;
+            the same day for a daily one). They belong to the current season.
+          </li>
+          <li>
+            <span class="text-cyan" aria-hidden="true">&gt;</span> Open a mini-task
+            and tick everyone who did it, then{" "}
+            <span class="text-ink">save completions</span>. The coin lands in
+            their wallet straight away and they're notified; unticking someone
+            takes it back. Deleting a mini-task removes its completions and
+            their coin.
+          </li>
+          <li>
+            <span class="text-cyan" aria-hidden="true">&gt;</span> Players only see
+            mini-tasks (on the homepage and their account) while the{" "}
+            <span class="text-ink">mini-tasks</span> flag is on. You can set them
+            up and tick them off with it off. The{" "}
+            <span class="text-ink">achievements</span> flag opens each player's achievements
+            page (<code class="text-ink">/account/achievements</code>), with
+            progress towards every goal; there's nothing to manage.
           </li>
         </ul>
       </TerminalWindow>
@@ -496,18 +541,20 @@ const link = "text-cyan hover:underline";
           <li>
             <span class="text-cyan" aria-hidden="true">&gt;</span>
             <span class="text-ink">+ new item</span> adds a pet, avatar, cosmetic
-            or power-up. Commit pet and avatar images under
+            or power-up. Commit pet and avatar images under{" "}
             <code class="text-ink">public/shop</code> and enter their path. The category
-            and effect are fixed once created; untick
+            and effect are fixed once created; untick{" "}
             <span class="text-ink">for sale</span> to retire an item (owners keep
-            it, and it stops hatching from eggs). Tick
+            it, and it stops hatching from eggs). Tick{" "}
             <span class="text-ink">egg exclusive</span> for a pet, avatar or cosmetic
             that should only hatch from mystery eggs; its price still sets its rarity.
             Only items nobody owns can be deleted.
           </li>
           <li>
             <span class="text-cyan" aria-hidden="true">&gt;</span> Mystery eggs are
-            behind a feature flag and start off: turn them on (or off again) under
+            behind a feature flag and start off: turn them on (or off again) under{
+              " "
+            }
             <a href={withBase("/admin/site#flags")} class={link}
               >feature flags</a
             >. While off, the eggs, recent hatches and egg-exclusive items are
@@ -515,14 +562,37 @@ const link = "text-cyan hover:underline";
             owned.
           </li>
           <li>
-            <span class="text-cyan" aria-hidden="true">&gt;</span> Set
+            <span class="text-cyan" aria-hidden="true">&gt;</span> Skill trees (<a
+              href={withBase("/skills")}
+              class={link}>/skills</a
+            >) are behind the{" "}
+            <span class="text-ink">skill trees</span> flag. Players commit to one
+            pathway a season and unlock its four skills with Clim Coin for coin perks,
+            a title and a name colour; it never changes points. There's nothing to
+            manage: the pathways live in code (<code class="text-ink"
+              >src/data/skill-trees.ts</code
+            >), their rewards are listed in the shop editor as{" "}
+            <span class="text-ink">skill reward</span> (never for sale), and each
+            player's pathway shows on their edit page. Choices are final for the season;
+            turning the flag off hides the page and sigils, but perks and rewards
+            already unlocked keep working.
+          </li>
+          <li>
+            <span class="text-cyan" aria-hidden="true">&gt;</span> Set{" "}
             <span class="text-ink">on sale from / until</span> (UK time) for limited-time
             stock: it shows on the shop's limited-time shelf and disappears (and stops
             hatching) after it ends. For a seasonal egg's exclusive, tick egg exclusive
             and pick the egg: only that egg hatches it, and only while the egg's on
             sale. Seasonal eggs themselves (like the Haunted Egg) and their dates
-            are defined in code, in
+            are defined in code, in{" "}
             <code class="text-ink">src/data/coin-rules.ts</code>.
+          </li>
+          <li>
+            <span class="text-cyan" aria-hidden="true">&gt;</span> Set{" "}
+            <span class="text-ink">stock per season</span> to limit how many the shop
+            sells each season (blank: unlimited). The shop card shows how many are
+            left. Only shop purchases use it up: eggs can still hatch a sold-out item,
+            and gifts and marketplace resales don't count.
           </li>
           <li>
             <span class="text-cyan" aria-hidden="true">&gt;</span> Shield, Mirror
@@ -533,21 +603,83 @@ const link = "text-cyan hover:underline";
             gift each other up to 5 coins a week; gifts show in both wallets' history.
           </li>
           <li>
-            <span class="text-cyan" aria-hidden="true">&gt;</span> Grant or deduct
-            coins on a player's page in the
-            <a href={withBase(ADMIN_ROSTER)} class={link}>roster</a> (with a reason
-            they'll see).
+            <span class="text-cyan" aria-hidden="true">&gt;</span> Gift, grant or
+            deduct coins, and gift any shop item (pets, avatars, cosmetics and power-ups,
+            even retired or egg-exclusive ones), on a player's page in the <a
+              href={withBase(ADMIN_ROSTER)}
+              class={link}>roster</a
+            >, with a reason they'll see. Gifts are free for them and they're
+            notified. You can take an item back unless it's a power-up they've
+            already used, or they've sold it on the marketplace.
+          </li>
+          <li>
+            <span class="text-cyan" aria-hidden="true">&gt;</span> Gift a mystery
+            egg (any egg, seasonal ones too, on sale or not) from the same page. It
+            lands unopened in their inventory with a notification, and they crack
+            it there for free, with their own odds, getting the usual reveal. You
+            can take an egg back until it's cracked. Gifted eggs stay hidden while
+            the{" "}
+            <span class="text-ink">shop_eggs</span> flag is off.
+          </li>
+          <li>
+            <span class="text-cyan" aria-hidden="true">&gt;</span> The{" "}
+            <a href={withBase("/market")} class={link}>marketplace</a> is behind the{
+              " "
+            }
+            <span class="text-ink">marketplace</span> flag. Players list what they
+            own (not skill rewards, Shield, Mirror or Insurance) at between half and
+            three times its shop price, and other players buy it or make a lower offer,
+            which holds their coins until it's answered. Listings lapse after 7 days
+            and there's no fee. Moderate it on the{" "}
+            <a href={withBase("/admin/market")} class={link}>market screen</a>:
+            taking a listing down returns the item and declines its offers.
+            Sales are final, so fix a bad one with a coin grant on the player's
+            page. Closing the season takes every open listing down. Trades show
+            in the activity log as <span class="text-ink">marketplace</span>.
           </li>
           <li>
             <span class="text-cyan" aria-hidden="true">&gt;</span> Power-ups used
             on a week are listed in its judge tab, where you can revoke one (its effect
             goes and the player gets that power-up back to use again; they can't buy
-            a second one). Write the week's
+            a second one). Write the week's{" "}
             <span class="text-ink">taskmaster's hint</span> on its brief tab.
+          </li>
+          <li>
+            <span class="text-cyan" aria-hidden="true">&gt;</span> Wishes made with
+            the <span class="text-ink">One Wish Willow</span> power-up land in the{
+              " "
+            }
+            <a href={withBase(`${ADMIN_HOME}#wishes`)} class={link}>dashboard</a
+            >'s wish inbox (private to the player and admins). Grant or decline
+            each one, with an optional reply; the decision is final, the wish is
+            spent either way, and the player is notified. Granting is just a
+            promise: make it happen yourself (e.g. gift coins or an item from
+            their page).
           </li>
         </ul>
       </TerminalWindow>
     </div>
+  </section>
+
+  <section
+    id="activity"
+    aria-labelledby="activity-heading"
+    class="mt-12 scroll-mt-24"
+  >
+    <h2 id="activity-heading" class={h2}>
+      <span class="text-acid">#</span> the activity log
+    </h2>
+    <p class={lead}>
+      <a href={withBase(ADMIN_ACTIVITY)} class={link}>activity</a> lists everything
+      that moved points or Clim Coin in a season, newest first: score and bonus changes
+      (who changed what, from and to), coin grants and deductions, item gifts, mini-task
+      ticks, purchases, crates, player gifts, power-ups, skills and wishes. Pick a
+      player under <span class="text-ink">who</span> to see only what affected them
+      when someone queries their total, and use the season bar to look back at an
+      older season. Each line links to where you can check or fix it. Things removed
+      outright (a deleted coin grant, a revoked power-up) leave no line; score changes
+      are logged from when the history began.
+    </p>
   </section>
 
   <section

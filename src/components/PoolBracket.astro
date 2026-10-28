@@ -147,8 +147,9 @@ function pickStatus(match: PoolMatch): string {
                               label="weekly winner"
                             />
                           ) : won ? (
-                            <span class="text-xs" aria-label="winner">
-                              ✓
+                            <span class="text-xs">
+                              <span aria-hidden="true">✓</span>
+                              <span class="sr-only">winner</span>
                             </span>
                           ) : (
                             pickable && (

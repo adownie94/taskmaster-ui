@@ -15,6 +15,31 @@ export const FEATURE_FLAGS: Record<
     description:
       "Shows the egg crates in the shop and lets players crack them. Off: the eggs, recent hatches and egg-exclusive items are hidden, and nobody can open one.",
   },
+  storm_mode: {
+    label: "Storm mode",
+    description:
+      "Puts the public site in the middle of a hurricane: driving rain, lightning, gusts, flying debris and “A Storm Is Brewing” blown across the screen. Everything stays clickable, admin pages stay calm, and visitors who ask for reduced motion get a still version. Off: the weather clears.",
+  },
+  skill_trees: {
+    label: "Skill trees",
+    description:
+      "Opens /skills: players commit to one pathway a season (Stormbrewer, Elite Hacker, Friendkeeper, Overachiever or Elephant Cartographer) and unlock its nodes with Clim Coin for coin perks, titles and name colours. Off: the page, its links and pathway sigils are hidden and nobody can unlock; perks and rewards already unlocked keep working.",
+  },
+  mini_tasks: {
+    label: "Mini-tasks",
+    description:
+      "Shows this season's daily and bonus mini-tasks on the homepage and in players' accounts, with what each is worth (1–5 Clim Coin) and whether they've done it. Off: the panels are hidden. Admins can still set mini-tasks and tick off completions in /admin/site, and coins already earned stay in wallets.",
+  },
+  achievements: {
+    label: "Achievements",
+    description:
+      "Opens /account/achievements: every achievement a player can earn this season, locked or unlocked, with a progress bar towards each. Off: the page and its links are hidden.",
+  },
+  marketplace: {
+    label: "Marketplace",
+    description:
+      "Opens /market: players list pets, avatars, cosmetics, egg exclusives and unused power-ups (not Shield, Mirror or Insurance) for Clim Coin, buy each other's listings and make offers. Listings expire after 7 days. Off: the market, its links and the wallet's sell buttons are hidden and nobody can list, buy or offer; open listings and offers stay put (offered coins stay held) until they expire or it's back on.",
+  },
   pool_bracket: {
     label: "Pool bracket",
     description:

@@ -14,10 +14,20 @@ import {
   coinGifts as coinGiftsTable,
   coinPurchases as coinPurchasesTable,
   crateOpens as crateOpensTable,
+  eggGifts as eggGiftsTable,
   equippedItems as equippedItemsTable,
   featureFlags as featureFlagsTable,
+  itemGifts as itemGiftsTable,
+  marketListings as marketListingsTable,
+  marketOffers as marketOffersTable,
+  marketSales as marketSalesTable,
+  miniTaskCompletions as miniTaskCompletionsTable,
+  miniTasks as miniTasksTable,
+  wishes as wishesTable,
   powerUpUses as powerUpUsesTable,
   shopItems as shopItemsTable,
+  skillPaths as skillPathsTable,
+  skillUnlocks as skillUnlocksTable,
   peoplesChoiceVotes as peoplesChoiceVotesTable,
   players as playersTable,
   pollOptions as pollOptionsTable,
@@ -49,17 +59,24 @@ import {
   deriveSabotageBonusRows,
   mapAdjustments,
   mapCrateOpens,
+  mapEggGifts,
   mapEntries,
   mapEquipped,
   mapGifts,
   mapHints,
+  mapItemGifts,
+  mapWishes,
   mapPowerUpUses,
   mapPurchases,
   mapShopItems,
+  mapSkillPaths,
+  mapSkillUnlocks,
   powerUpKeys,
   resolveSabotages,
 } from "./coins";
 import { mapFeatureFlags } from "./feature-flags";
+import { mapMarket } from "./market-mappers";
+import { mapMiniTaskCompletions, mapMiniTasks } from "./mini-tasks";
 import { unlockedTaskIds } from "../lib/task-reveal";
 import { timestamptzToIso } from "../lib/time";
 import { cachedJson, purgeCached } from "../lib/edge-cache";
@@ -90,9 +107,33 @@ const rowsCacheKey = (origin: string) =>
     env.CF_VERSION_METADATA?.id ?? "local"
   }`;
 
-/** Drops the cached rows in this data centre, after a write. */
-export const invalidateCompetitionCache = (origin: string) =>
-  purgeCached(rowsCacheKey(origin));
+// Signed-out visitors' pages are cached under the current generation (see
+// `src/middleware.ts`). Purging it with the rows moves every page in this
+// data centre onto fresh keys, since a URL-keyed cache can't be emptied.
+const generationCacheKey = (origin: string) =>
+  `${origin}/__cache/competition-generation/${
+    env.CF_VERSION_METADATA?.id ?? "local"
+  }`;
+
+/**
+ * The current generation of the cached competition data (in this data
+ * centre): it changes whenever the cached rows are purged or expire. Cache
+ * keys that include it are dropped along with the rows.
+ */
+export const competitionCacheGeneration = (origin: string) =>
+  cachedJson<string>(
+    generationCacheKey(origin),
+    ROWS_CACHE_TTL_SECONDS,
+    async () => `${env.CF_VERSION_METADATA?.id ?? "local"}-${Date.now()}`,
+  );
+
+/** Drops the cached rows (and pages built from them) in this data centre. */
+export const invalidateCompetitionCache = async (origin: string) => {
+  await Promise.all([
+    purgeCached(rowsCacheKey(origin)),
+    purgeCached(generationCacheKey(origin)),
+  ]);
+};
 
 /** Every competition table's rows, in one HTTP round trip. */
 async function fetchCompetitionRows() {
@@ -122,6 +163,16 @@ async function fetchCompetitionRows() {
     crateOpenRows,
     coinGiftRows,
     featureFlagRows,
+    itemGiftRows,
+    eggGiftRows,
+    wishRows,
+    skillPathRows,
+    skillUnlockRows,
+    miniTaskRows,
+    miniTaskCompletionRows,
+    marketListingRows,
+    marketOfferRows,
+    marketSaleRows,
   ] = await db.batch([
     db.select().from(seasonsTable),
     db.select().from(playersTable).orderBy(asc(playersTable.sortOrder)),
@@ -181,6 +232,16 @@ async function fetchCompetitionRows() {
     db.select().from(crateOpensTable).orderBy(asc(crateOpensTable.id)),
     db.select().from(coinGiftsTable).orderBy(asc(coinGiftsTable.id)),
     db.select().from(featureFlagsTable),
+    db.select().from(itemGiftsTable).orderBy(asc(itemGiftsTable.id)),
+    db.select().from(eggGiftsTable).orderBy(asc(eggGiftsTable.id)),
+    db.select().from(wishesTable).orderBy(asc(wishesTable.id)),
+    db.select().from(skillPathsTable),
+    db.select().from(skillUnlocksTable).orderBy(asc(skillUnlocksTable.id)),
+    db.select().from(miniTasksTable),
+    db.select().from(miniTaskCompletionsTable),
+    db.select().from(marketListingsTable),
+    db.select().from(marketOffersTable),
+    db.select().from(marketSalesTable),
   ]);
   return {
     seasonRows,
@@ -207,6 +268,16 @@ async function fetchCompetitionRows() {
     crateOpenRows,
     coinGiftRows,
     featureFlagRows,
+    itemGiftRows,
+    eggGiftRows,
+    wishRows,
+    skillPathRows,
+    skillUnlockRows,
+    miniTaskRows,
+    miniTaskCompletionRows,
+    marketListingRows,
+    marketOfferRows,
+    marketSaleRows,
   };
 }
 
@@ -301,6 +372,16 @@ async function buildSeasonCompetition(
     crateOpenRows,
     coinGiftRows,
     featureFlagRows,
+    itemGiftRows,
+    eggGiftRows,
+    wishRows,
+    skillPathRows,
+    skillUnlockRows,
+    miniTaskRows,
+    miniTaskCompletionRows,
+    marketListingRows,
+    marketOfferRows,
+    marketSaleRows,
   }: CompetitionRows,
   viewer: CompetitionViewer,
   season: Season,
@@ -422,7 +503,15 @@ async function buildSeasonCompetition(
       entries: mapEntries(entryRows),
       crateOpens: mapCrateOpens(crateOpenRows),
       gifts: mapGifts(coinGiftRows),
+      itemGifts: mapItemGifts(itemGiftRows),
+      eggGifts: mapEggGifts(eggGiftRows),
+      wishes: mapWishes(wishRows),
       hints: mapHints(taskRows),
+      skillPaths: mapSkillPaths(skillPathRows),
+      skillUnlocks: mapSkillUnlocks(skillUnlockRows),
+      miniTasks: mapMiniTasks(miniTaskRows),
+      miniTaskCompletions: mapMiniTaskCompletions(miniTaskCompletionRows),
+      market: mapMarket(marketListingRows, marketOfferRows, marketSaleRows),
     },
     features: mapFeatureFlags(featureFlagRows),
   };

@@ -48,6 +48,11 @@ import { createRulesQueries } from "./rules-queries";
 import { createStreakQueries } from "./streak-queries";
 import { createWrappedQueries } from "./wrapped-queries";
 import { createCoinQueries } from "./coin-queries";
+import { createMarketQueries } from "./market-queries";
+import { createSkillQueries } from "./skill-queries";
+import { createMiniTaskQueries } from "./mini-task-queries";
+import { createAchievementQueries } from "./achievement-queries";
+import { createActivityQueries } from "./activity-queries";
 import { isWrappedLive } from "./seasons";
 import { assetUrl, withBase } from "../lib/url";
 import { ADMIN_HOME, ADMIN_SECTIONS } from "../lib/admin-nav";
@@ -326,6 +331,18 @@ export function createQueries(data: CompetitionData) {
 
     const results: TaskResult[] = [];
     for (const task of completed) {
+      if (task.format === "team") {
+        const [top] = getTeamResults(task.id);
+        if (top) {
+          results.push({
+            task,
+            winnerName: top.team.name,
+            winningScore: top.points,
+            completionDate: task.deadline,
+          });
+        }
+        continue;
+      }
       const winnerScore = scores.find(
         (s) => s.taskId === task.id && s.position === 1,
       );
@@ -335,7 +352,7 @@ export function createQueries(data: CompetitionData) {
       if (winnerScore && winner) {
         results.push({
           task,
-          winner,
+          winnerName: winner.name,
           winningScore: winnerScore.points,
           completionDate: task.deadline,
         });
@@ -1020,7 +1037,7 @@ export function createQueries(data: CompetitionData) {
     const climber = [...leaderboard]
       .filter((row) => typeof row.movement === "number" && row.movement > 0)
       .sort((a, b) => (b.movement ?? 0) - (a.movement ?? 0))[0];
-    if (climber && climber.movement) {
+    if (climber?.movement) {
       awards.push({
         id: "climber",
         title: "Biggest Climber",
@@ -1283,8 +1300,38 @@ export function createQueries(data: CompetitionData) {
         }))
       : [];
 
+    const skillItems: CommandPaletteItem[] = data.features.skill_trees
+      ? [
+          {
+            id: "page-skills",
+            label: "Skill trees",
+            group: "page",
+            href: withBase("/skills"),
+            hint: "spend clim coin on a pathway",
+            keywords:
+              "skills skill tree pathway perks stormbrewer elite hacker friendkeeper overachiever elephant cartographer clim coin",
+          },
+        ]
+      : [];
+
+    const marketItems: CommandPaletteItem[] = data.features.marketplace
+      ? [
+          {
+            id: "page-market",
+            label: "Marketplace",
+            group: "page",
+            href: withBase("/market"),
+            hint: "buy and sell items with other players",
+            keywords:
+              "market marketplace trade sell buy offer listing clim coin cosmetics power-ups hint",
+          },
+        ]
+      : [];
+
     return [
       ...PALETTE_PAGES,
+      ...skillItems,
+      ...marketItems,
       ...seasonItems,
       ...wrappedItems,
       ...taskItems,
@@ -1646,6 +1693,8 @@ export function createQueries(data: CompetitionData) {
     ...streakQueries,
   });
 
+  const miniTaskQueries = createMiniTaskQueries(data);
+
   return {
     season: data.season,
     /** Site-wide feature flags (off unless an admin turned them on). */
@@ -1710,5 +1759,18 @@ export function createQueries(data: CompetitionData) {
     ...streakQueries,
     ...wrappedQueries,
     ...coinQueries,
+    ...createMarketQueries(data, { getWallet: coinQueries.getWallet }),
+    ...createSkillQueries(data, {
+      getBalance: (playerId) => coinQueries.getWallet(playerId).balance,
+      getSkillPerks: coinQueries.getSkillPerks,
+    }),
+    ...miniTaskQueries,
+    ...createActivityQueries(data),
+    ...createAchievementQueries(data, {
+      getLeaderboardWithMovement,
+      getPlayerResults,
+      getWallet: coinQueries.getWallet,
+      getMiniTaskCount: miniTaskQueries.getMiniTaskCount,
+    }),
   };
 }

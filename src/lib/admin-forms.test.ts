@@ -11,6 +11,11 @@ import {
   parseBonusForm,
   parseChangelogForm,
   parseCoinAdjustmentForm,
+  parseEggGiftForm,
+  parseItemGiftForm,
+  parseMiniTaskCompletionsForm,
+  parseMiniTaskForm,
+  parseWishDecisionForm,
   parseFeatureFlagForm,
   parseNewPlayerForm,
   parsePlayerEmailForm,
@@ -1474,8 +1479,21 @@ describe("parseShopItemForm", () => {
       crateId: null,
       availableFrom: null,
       availableUntil: null,
+      stock: null,
       sortOrder: undefined,
     });
+  });
+
+  it("parses stock per season, blank meaning unlimited", () => {
+    expect(dataOf(parse({ stock: "5" })).stock).toBe(5);
+    expect(dataOf(parse({ stock: "0" })).stock).toBe(0);
+    expect(errorsOf(parse({ stock: "-1" })).stock).toBe("Must be 0 or more.");
+    expect(errorsOf(parse({ stock: "2.5" })).stock).toBe(
+      "Enter a whole number.",
+    );
+    expect(errorsOf(parse({ stock: "3", crateOnly: "on" })).stock).toMatch(
+      /aren't sold in the shop/,
+    );
   });
 
   it("parses a sale window as UK wall-clock times", () => {
@@ -1599,6 +1617,76 @@ describe("parseCoinAdjustmentForm", () => {
   });
 });
 
+describe("parseItemGiftForm", () => {
+  it("parses the item and the note posted as giftReason", () => {
+    expect(
+      dataOf(
+        parseItemGiftForm(
+          formData({ itemId: " duck ", giftReason: " Well played " }),
+        ),
+      ),
+    ).toEqual({ itemId: "duck", reason: "Well played" });
+  });
+
+  it("requires an item and a reason", () => {
+    const errors = errorsOf(
+      parseItemGiftForm(formData({ itemId: "", giftReason: " " })),
+    );
+    expect(errors.itemId).toBe("Pick an item to gift.");
+    expect(errors.reason).toBe("Required.");
+  });
+});
+
+describe("parseEggGiftForm", () => {
+  it("parses a known egg and the note posted as eggReason", () => {
+    expect(
+      dataOf(
+        parseEggGiftForm(
+          formData({ crateId: " faberge-egg ", eggReason: " Star player " }),
+        ),
+      ),
+    ).toEqual({ crateId: "faberge-egg", reason: "Star player" });
+  });
+
+  it("requires a real egg and a reason", () => {
+    const errors = errorsOf(
+      parseEggGiftForm(formData({ crateId: "golden-egg", eggReason: "" })),
+    );
+    expect(errors.crateId).toBe("Pick an egg to gift.");
+    expect(errors.reason).toBe("Required.");
+  });
+});
+
+describe("parseWishDecisionForm", () => {
+  it("parses a decision with an optional reply", () => {
+    expect(
+      dataOf(
+        parseWishDecisionForm(
+          formData({ rowId: "3", decision: "granted", response: " Done! " }),
+        ),
+      ),
+    ).toEqual({ rowId: 3, decision: "granted", response: "Done!" });
+    expect(
+      dataOf(
+        parseWishDecisionForm(formData({ rowId: "3", decision: "declined" })),
+      ),
+    ).toEqual({ rowId: 3, decision: "declined", response: null });
+  });
+
+  it("rejects an unknown decision or wish, and a long reply", () => {
+    const errors = errorsOf(
+      parseWishDecisionForm(
+        formData({ rowId: "x", decision: "maybe", response: "y".repeat(201) }),
+      ),
+    );
+    expect(Object.keys(errors).sort()).toEqual([
+      "decision",
+      "response",
+      "rowId",
+    ]);
+  });
+});
+
 describe("parseFeatureFlagForm", () => {
   it("parses a known flag turned on or off", () => {
     expect(
@@ -1616,5 +1704,64 @@ describe("parseFeatureFlagForm", () => {
     expect(
       parseFeatureFlagForm(formData({ key: "shop_eggs", enabled: "yes" })),
     ).toBeUndefined();
+  });
+});
+
+describe("parseMiniTaskForm", () => {
+  const valid = {
+    title: "  Bring a plant  ",
+    description: "",
+    reward: "3",
+    startsOn: "2026-10-26",
+    endsOn: "2026-10-27",
+  };
+
+  it("parses a valid mini-task", () => {
+    const result = parseMiniTaskForm(formData(valid));
+    expect(result.ok && result.data).toEqual({
+      title: "Bring a plant",
+      description: "",
+      reward: 3,
+      startsOn: "2026-10-26",
+      endsOn: "2026-10-27",
+    });
+  });
+
+  it("keeps rewards between 1 and 5 Clim Coin", () => {
+    expect(
+      errorsOf(parseMiniTaskForm(formData({ ...valid, reward: "0" }))),
+    ).toHaveProperty("reward");
+    expect(
+      errorsOf(parseMiniTaskForm(formData({ ...valid, reward: "6" }))).reward,
+    ).toMatch(/at most 5/);
+    expect(
+      errorsOf(parseMiniTaskForm(formData({ ...valid, reward: "1.5" }))),
+    ).toHaveProperty("reward");
+  });
+
+  it("rejects a last day before the first, and unreal dates", () => {
+    expect(
+      errorsOf(parseMiniTaskForm(formData({ ...valid, endsOn: "2026-10-25" })))
+        .endsOn,
+    ).toMatch(/before the first/);
+    expect(
+      errorsOf(
+        parseMiniTaskForm(formData({ ...valid, startsOn: "2026-02-30" })),
+      ),
+    ).toHaveProperty("startsOn");
+  });
+});
+
+describe("parseMiniTaskCompletionsForm", () => {
+  it("returns the ticked player ids, trimmed and deduplicated", () => {
+    expect(
+      parseMiniTaskCompletionsForm(
+        formData({
+          intent: "completions",
+          playerId: ["ann", " bob ", "ann", ""],
+        }),
+      ),
+    ).toEqual(["ann", "bob"]);
+    expect(parseMiniTaskCompletionsForm(formData({}))).toEqual([]);
   });
 });

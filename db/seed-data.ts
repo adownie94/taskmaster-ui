@@ -1,4 +1,5 @@
 import type * as schema from "../src/db/schema";
+import { SKILL_REWARD_ITEMS } from "../src/data/skill-trees";
 
 // Initial data for a fresh database, generated from the original mock-data
 // modules. Postgres is now the source of truth: record new results in the
@@ -1427,6 +1428,17 @@ export const shopItems: Insert<typeof schema.shopItems> = [
     powerUp: "insurance",
     sortOrder: 7,
   },
+  // Spent by making a wish from the wallet; the Taskmaster grants it or not.
+  {
+    id: "one-wish-willow",
+    name: "One Wish Willow",
+    description:
+      "Whisper one wish to the Taskmaster (within reason). They grant it, or don't. Either way, it's spent.",
+    category: "power_up",
+    price: 10,
+    powerUp: "wish",
+    sortOrder: 8,
+  },
   // More pets, avatars and flair.
   {
     id: "segfault-snail",
@@ -1587,6 +1599,26 @@ export const shopItems: Insert<typeof schema.shopItems> = [
     sortOrder: 12,
   },
   {
+    id: "beauty-and-the-beast",
+    name: "Beauty & the Beast",
+    description:
+      "A tale as old as time, in 48 pixels. Hums a show tune whenever you place.",
+    category: "pet",
+    price: 20,
+    imageUrl: "/shop/pets/beauty-and-the-beast.svg",
+    sortOrder: 13,
+  },
+  {
+    id: "pocket-dylan",
+    name: "Pocket Dylan",
+    description:
+      "A pocket-sized Dylan in his comfiest fit. Follows you everywhere, offering moral support.",
+    category: "pet",
+    price: 20,
+    imageUrl: "/shop/pets/pocket-dylan.svg",
+    sortOrder: 14,
+  },
+  {
     id: "title-haunted-codebase",
     name: "Title: Haunted Codebase",
     description: "Halloween only: it leaves the shop after the 31st.",
@@ -1598,4 +1630,12 @@ export const shopItems: Insert<typeof schema.shopItems> = [
     availableUntil: "2026-10-31 23:59:59",
     sortOrder: 27,
   },
+  // Skill tree rewards: never sold, granted by unlocking their node.
+  ...SKILL_REWARD_ITEMS.map((item, index) => ({
+    ...item,
+    category: "cosmetic" as const,
+    price: 0,
+    skillOnly: true,
+    sortOrder: 900 + index,
+  })),
 ];

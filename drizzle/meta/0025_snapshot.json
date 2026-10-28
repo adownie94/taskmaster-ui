@@ -1,5 +1,5 @@
 {
-  "id": "86d2e9f9-2d1f-4d70-904c-29ca948c3ad2",
+  "id": "3292d183-66f9-4b50-bc5c-15cdba4706a3",
   "prevId": "944a9a62-6e10-4955-9a2e-f145fd5d9800",
   "version": "7",
   "dialect": "postgresql",
@@ -875,6 +875,158 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.item_gifts": {
+      "name": "item_gifts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "item_gifts_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "2147483647",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "player_id": {
+          "name": "player_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purchase_id": {
+          "name": "purchase_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_name": {
+          "name": "actor_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "item_gifts_player_id_idx": {
+          "name": "item_gifts_player_id_idx",
+          "columns": [
+            {
+              "expression": "player_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "item_gifts_item_id_idx": {
+          "name": "item_gifts_item_id_idx",
+          "columns": [
+            {
+              "expression": "item_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "item_gifts_player_id_players_id_fk": {
+          "name": "item_gifts_player_id_players_id_fk",
+          "tableFrom": "item_gifts",
+          "tableTo": "players",
+          "columnsFrom": [
+            "player_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "item_gifts_item_id_shop_items_id_fk": {
+          "name": "item_gifts_item_id_shop_items_id_fk",
+          "tableFrom": "item_gifts",
+          "tableTo": "shop_items",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "item_gifts_purchase_id_coin_purchases_id_fk": {
+          "name": "item_gifts_purchase_id_coin_purchases_id_fk",
+          "tableFrom": "item_gifts",
+          "tableTo": "coin_purchases",
+          "columnsFrom": [
+            "purchase_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "item_gifts_purchase_id_unique": {
+          "name": "item_gifts_purchase_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "purchase_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.peoples_choice_votes": {
       "name": "peoples_choice_votes",
       "schema": "",
@@ -1532,581 +1684,6 @@
           "value": "\"polls\".\"vote_bonus_points\" between 0 and 100"
         }
       },
-      "isRLSEnabled": false
-    },
-    "public.pool_bracket_entries": {
-      "name": "pool_bracket_entries",
-      "schema": "",
-      "columns": {
-        "bracket_id": {
-          "name": "bracket_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slot": {
-          "name": "slot",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "pool_bracket_entries_team_id_idx": {
-          "name": "pool_bracket_entries_team_id_idx",
-          "columns": [
-            {
-              "expression": "team_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "pool_bracket_entries_bracket_id_pool_brackets_id_fk": {
-          "name": "pool_bracket_entries_bracket_id_pool_brackets_id_fk",
-          "tableFrom": "pool_bracket_entries",
-          "tableTo": "pool_brackets",
-          "columnsFrom": [
-            "bracket_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "pool_bracket_entries_team_id_pool_teams_id_fk": {
-          "name": "pool_bracket_entries_team_id_pool_teams_id_fk",
-          "tableFrom": "pool_bracket_entries",
-          "tableTo": "pool_teams",
-          "columnsFrom": [
-            "team_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "pool_bracket_entries_bracket_id_slot_pk": {
-          "name": "pool_bracket_entries_bracket_id_slot_pk",
-          "columns": [
-            "bracket_id",
-            "slot"
-          ]
-        }
-      },
-      "uniqueConstraints": {
-        "pool_bracket_entries_bracket_id_team_id_unique": {
-          "name": "pool_bracket_entries_bracket_id_team_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "bracket_id",
-            "team_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "pool_bracket_entries_slot_range": {
-          "name": "pool_bracket_entries_slot_range",
-          "value": "\"pool_bracket_entries\".\"slot\" between 0 and 15"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.pool_brackets": {
-      "name": "pool_brackets",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "identity": {
-            "type": "always",
-            "name": "pool_brackets_id_seq",
-            "schema": "public",
-            "increment": "1",
-            "startWith": "1",
-            "minValue": "1",
-            "maxValue": "2147483647",
-            "cache": "1",
-            "cycle": false
-          }
-        },
-        "season_id": {
-          "name": "season_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "week_number": {
-          "name": "week_number",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reveal_at": {
-          "name": "reveal_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "pool_brackets_season_id_seasons_id_fk": {
-          "name": "pool_brackets_season_id_seasons_id_fk",
-          "tableFrom": "pool_brackets",
-          "tableTo": "seasons",
-          "columnsFrom": [
-            "season_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "pool_brackets_season_id_week_number_unique": {
-          "name": "pool_brackets_season_id_week_number_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "season_id",
-            "week_number"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "pool_brackets_week_number_positive": {
-          "name": "pool_brackets_week_number_positive",
-          "value": "\"pool_brackets\".\"week_number\" >= 1"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.pool_match_reports": {
-      "name": "pool_match_reports",
-      "schema": "",
-      "columns": {
-        "bracket_id": {
-          "name": "bracket_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "round": {
-          "name": "round",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "match_index": {
-          "name": "match_index",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "winner_team_id": {
-          "name": "winner_team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "player_id": {
-          "name": "player_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "pool_match_reports_player_id_idx": {
-          "name": "pool_match_reports_player_id_idx",
-          "columns": [
-            {
-              "expression": "player_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "pool_match_reports_player_id_players_id_fk": {
-          "name": "pool_match_reports_player_id_players_id_fk",
-          "tableFrom": "pool_match_reports",
-          "tableTo": "players",
-          "columnsFrom": [
-            "player_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "pool_match_reports_team_entry_fk": {
-          "name": "pool_match_reports_team_entry_fk",
-          "tableFrom": "pool_match_reports",
-          "tableTo": "pool_bracket_entries",
-          "columnsFrom": [
-            "bracket_id",
-            "team_id"
-          ],
-          "columnsTo": [
-            "bracket_id",
-            "team_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "pool_match_reports_winner_entry_fk": {
-          "name": "pool_match_reports_winner_entry_fk",
-          "tableFrom": "pool_match_reports",
-          "tableTo": "pool_bracket_entries",
-          "columnsFrom": [
-            "bracket_id",
-            "winner_team_id"
-          ],
-          "columnsTo": [
-            "bracket_id",
-            "team_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "pool_match_reports_bracket_id_round_match_index_team_id_pk": {
-          "name": "pool_match_reports_bracket_id_round_match_index_team_id_pk",
-          "columns": [
-            "bracket_id",
-            "round",
-            "match_index",
-            "team_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.pool_match_results": {
-      "name": "pool_match_results",
-      "schema": "",
-      "columns": {
-        "bracket_id": {
-          "name": "bracket_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "round": {
-          "name": "round",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "match_index": {
-          "name": "match_index",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "winner_team_id": {
-          "name": "winner_team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "pool_match_results_entry_fk": {
-          "name": "pool_match_results_entry_fk",
-          "tableFrom": "pool_match_results",
-          "tableTo": "pool_bracket_entries",
-          "columnsFrom": [
-            "bracket_id",
-            "winner_team_id"
-          ],
-          "columnsTo": [
-            "bracket_id",
-            "team_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "pool_match_results_bracket_id_round_match_index_pk": {
-          "name": "pool_match_results_bracket_id_round_match_index_pk",
-          "columns": [
-            "bracket_id",
-            "round",
-            "match_index"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "pool_match_results_position_range": {
-          "name": "pool_match_results_position_range",
-          "value": "\"pool_match_results\".\"round\" >= 0 and \"pool_match_results\".\"match_index\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.pool_team_members": {
-      "name": "pool_team_members",
-      "schema": "",
-      "columns": {
-        "team_id": {
-          "name": "team_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "player_id": {
-          "name": "player_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "season_id": {
-          "name": "season_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "pool_team_members_season_id_seasons_id_fk": {
-          "name": "pool_team_members_season_id_seasons_id_fk",
-          "tableFrom": "pool_team_members",
-          "tableTo": "seasons",
-          "columnsFrom": [
-            "season_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "pool_team_members_team_season_fk": {
-          "name": "pool_team_members_team_season_fk",
-          "tableFrom": "pool_team_members",
-          "tableTo": "pool_teams",
-          "columnsFrom": [
-            "team_id",
-            "season_id"
-          ],
-          "columnsTo": [
-            "id",
-            "season_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "pool_team_members_player_season_fk": {
-          "name": "pool_team_members_player_season_fk",
-          "tableFrom": "pool_team_members",
-          "tableTo": "players",
-          "columnsFrom": [
-            "player_id",
-            "season_id"
-          ],
-          "columnsTo": [
-            "id",
-            "season_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "pool_team_members_team_id_player_id_pk": {
-          "name": "pool_team_members_team_id_player_id_pk",
-          "columns": [
-            "team_id",
-            "player_id"
-          ]
-        }
-      },
-      "uniqueConstraints": {
-        "pool_team_members_player_id_unique": {
-          "name": "pool_team_members_player_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "player_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.pool_teams": {
-      "name": "pool_teams",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "season_id": {
-          "name": "season_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "pool_teams_season_id_idx": {
-          "name": "pool_teams_season_id_idx",
-          "columns": [
-            {
-              "expression": "season_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "pool_teams_season_id_seasons_id_fk": {
-          "name": "pool_teams_season_id_seasons_id_fk",
-          "tableFrom": "pool_teams",
-          "tableTo": "seasons",
-          "columnsFrom": [
-            "season_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "pool_teams_id_season_id_unique": {
-          "name": "pool_teams_id_season_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "id",
-            "season_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.power_up_uses": {

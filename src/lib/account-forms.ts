@@ -6,12 +6,14 @@ import {
   parseWith,
   type ParseResult,
 } from "./admin-forms";
-import type { PollSettings } from "../types";
+import type { MarketOutcome, PollSettings } from "../types";
 import {
   ACTIVE_POWER_UP_KINDS,
   GIFT_MESSAGE_MAX,
   GIFT_WEEKLY_CAP,
   LOADOUT_SLOTS,
+  MARKET_LISTING_DAYS,
+  WISH_MAX,
 } from "../data/coin-rules";
 
 // Validation for the player self-service forms under `/account`. Players can
@@ -201,6 +203,15 @@ const walletActionSchema = z.discriminatedUnion("intent", [
       .transform((v) => (v === "" ? null : v.replace(/\s+/g, " "))),
   }),
   z.object({
+    intent: z.literal("wish"),
+    // One line, shown to the Taskmaster on the admin dashboard.
+    wish: z
+      .string()
+      .trim()
+      .transform((v) => v.replace(/\s+/g, " "))
+      .pipe(z.string().min(1).max(WISH_MAX)),
+  }),
+  z.object({
     intent: z.literal("use"),
     // Shield, Mirror and Insurance are passive: they're never used.
     effect: z.enum(ACTIVE_POWER_UP_KINDS),
@@ -217,9 +228,9 @@ const walletActionSchema = z.discriminatedUnion("intent", [
 export type WalletAction = z.output<typeof walletActionSchema>;
 
 /**
- * A wallet page action (equip, unequip, use a power-up or send a gift), or
- * `undefined` for a malformed post. Sabotage must name a target; nothing
- * else may.
+ * A wallet page action (equip, unequip, use a power-up, make a wish or send
+ * a gift), or `undefined` for a malformed post. Sabotage must name a target;
+ * nothing else may.
  */
 export function parseWalletAction(form: FormData): WalletAction | undefined {
   const values = formValues(form);
@@ -233,6 +244,7 @@ export function parseWalletAction(form: FormData): WalletAction | undefined {
     toPlayerId: values.toPlayerId ?? "",
     amount: values.amount ?? "",
     message: values.message ?? "",
+    wish: values.wish ?? "",
   });
   if (!parsed.success) return undefined;
   const action = parsed.data;
@@ -243,4 +255,121 @@ export function parseWalletAction(form: FormData): WalletAction | undefined {
     return undefined;
   }
   return action;
+}
+
+// ── Marketplace ───────────────────────────────────────────────────────
+
+const rowId = z
+  .string()
+  .trim()
+  .regex(/^\d{1,9}$/)
+  .transform(Number);
+const coins = z
+  .string()
+  .trim()
+  .regex(/^\d{1,6}$/)
+  .transform(Number)
+  .pipe(z.number().int().min(1));
+
+const marketActionSchema = z.discriminatedUnion("intent", [
+  z.object({ intent: z.literal("list"), purchaseId: rowId, price: coins }),
+  z.object({ intent: z.literal("cancel"), listingId: rowId }),
+  z.object({ intent: z.literal("buy"), listingId: rowId, price: coins }),
+  z.object({ intent: z.literal("offer"), listingId: rowId, amount: coins }),
+  z.object({ intent: z.literal("withdraw"), offerId: rowId }),
+  z.object({ intent: z.literal("accept"), offerId: rowId }),
+  z.object({ intent: z.literal("decline"), offerId: rowId }),
+]);
+
+/**
+ * A marketplace action. `buy` carries the price the buyer saw, so a price
+ * that changed under them (it can't today, but a relist can) never sells.
+ */
+export type MarketAction = z.output<typeof marketActionSchema>;
+
+/** A marketplace form post, or `undefined` when it's malformed. */
+export function parseMarketAction(form: FormData): MarketAction | undefined {
+  const values = formValues(form);
+  const parsed = marketActionSchema.safeParse({
+    intent: values.intent ?? "",
+    purchaseId: values.purchaseId ?? "",
+    listingId: values.listingId ?? "",
+    offerId: values.offerId ?? "",
+    price: values.price ?? "",
+    amount: values.amount ?? "",
+  });
+  return parsed.success ? parsed.data : undefined;
+}
+
+const MARKET_OUTCOMES: Record<
+  MarketOutcome,
+  { tone: "success" | "error"; message: string }
+> = {
+  listed: {
+    tone: "success",
+    message: `Listed. It's on the market for ${MARKET_LISTING_DAYS} days unless it sells or you take it down.`,
+  },
+  cancelled: {
+    tone: "success",
+    message: "Listing taken down. The item's back in your inventory.",
+  },
+  bought: { tone: "success", message: "Bought. It's in your inventory now." },
+  offered: {
+    tone: "success",
+    message:
+      "Offer made. The coins are held until the seller answers, you withdraw it or the listing ends.",
+  },
+  withdrawn: {
+    tone: "success",
+    message: "Offer withdrawn. Your coins are free again.",
+  },
+  accepted: { tone: "success", message: "Offer accepted. Sold!" },
+  declined: { tone: "success", message: "Offer declined." },
+  invalid: {
+    tone: "error",
+    message: "That didn't work. The listing or offer may have changed.",
+  },
+  disabled: { tone: "error", message: "The marketplace is closed right now." },
+  "season-closed": {
+    tone: "error",
+    message: "The season's over, so the market is closed.",
+  },
+  closed: {
+    tone: "error",
+    message: "That listing has already sold, expired or been taken down.",
+  },
+  owned: {
+    tone: "error",
+    message:
+      "You already have that item (or a charge of that power-up), so you can't buy another.",
+  },
+  unaffordable: {
+    tone: "error",
+    message:
+      "Not enough Clim Coin. Coins held by your other offers don't count.",
+  },
+  "out-of-range": {
+    tone: "error",
+    message: "That price is outside what this item can go for.",
+  },
+  untradeable: {
+    tone: "error",
+    message:
+      "That item can't be traded (skill tree rewards, Shield, Mirror and Insurance stay put).",
+  },
+  spent: {
+    tone: "error",
+    message: "That power-up has already been used, so it can't be sold.",
+  },
+};
+
+export const isMarketOutcome = (value: string): value is MarketOutcome =>
+  Object.hasOwn(MARKET_OUTCOMES, value);
+
+/** Message and tone for a marketplace outcome, shown after the redirect. */
+export function describeMarketOutcome(outcome: MarketOutcome): {
+  tone: "success" | "error";
+  message: string;
+} {
+  return MARKET_OUTCOMES[outcome];
 }

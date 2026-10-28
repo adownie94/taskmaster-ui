@@ -5,6 +5,7 @@ export const ADMIN_WEEKS = "/admin/weeks";
 export const ADMIN_SEASONS = "/admin/seasons";
 export const ADMIN_ROSTER = "/admin/roster";
 export const ADMIN_SITE = "/admin/site";
+export const ADMIN_ACTIVITY = "/admin/activity";
 export const ADMIN_POOL = "/admin/pool";
 export const ADMIN_GUIDE = "/admin/guide";
 
@@ -32,20 +33,34 @@ export const ADMIN_SECTIONS: AdminSection[] = [
     match: ["/admin/players", "/admin/teams"],
   },
   {
+    href: ADMIN_SITE,
+    label: "site",
+    title: "Polls, mini-tasks, changelog & shop",
+    hint: "feature flags, homepage polls, mini-tasks, the what's new list, the Clim Coin shop and marketplace",
+    keywords:
+      "feature flags toggles switches enable disable polls votes questions mini-tasks daily bonus side quests tick off completions changelog whats new release notes clim coin shop pets avatars cosmetics power-ups items prices mystery eggs crates marketplace market listings offers trades take down",
+    match: [
+      "/admin/polls",
+      "/admin/mini-tasks",
+      "/admin/changelog",
+      "/admin/shop",
+      "/admin/market",
+    ],
+  },
+  {
+    href: ADMIN_ACTIVITY,
+    label: "activity",
+    title: "Check the activity log",
+    hint: "one timeline of score changes, coin grants, gifts, purchases and mini-tasks",
+    keywords:
+      "activity log audit history timeline disputes who changed what score changes coin adjustments grants deductions gifts purchases crates power-ups sabotage skills wishes mini-tasks",
+  },
+  {
     href: ADMIN_POOL,
     label: "pool",
     title: "Run the pool bracket",
     hint: "pool pairs, weekly draws and match results",
     keywords: "pool bracket pairs draw matches knockout tournament winner",
-  },
-  {
-    href: ADMIN_SITE,
-    label: "site",
-    title: "Polls, changelog & shop",
-    hint: "feature flags, homepage polls, the what's new list and the Clim Coin shop",
-    keywords:
-      "feature flags toggles switches enable disable polls votes questions changelog whats new release notes clim coin shop pets avatars cosmetics power-ups items prices mystery eggs crates",
-    match: ["/admin/polls", "/admin/changelog", "/admin/shop"],
   },
   {
     href: ADMIN_GUIDE,
@@ -106,6 +121,7 @@ const LEGACY_ROUTES: [RegExp, (id?: string) => string][] = [
   [/^\/admin\/polls$/, () => ADMIN_SITE],
   [/^\/admin\/changelog$/, () => `${ADMIN_SITE}#changelog`],
   [/^\/admin\/shop$/, () => `${ADMIN_SITE}#shop`],
+  [/^\/admin\/mini-tasks$/, () => `${ADMIN_SITE}#mini-tasks`],
 ];
 
 /**

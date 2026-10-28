@@ -18,7 +18,15 @@ import {
   coinAdjustments,
   coinPurchases,
   crateOpens,
+  eggGifts,
+  equippedItems,
   featureFlags,
+  itemGifts,
+  marketListings,
+  marketOffers,
+  marketSales,
+  miniTaskCompletions,
+  miniTasks,
   powerUpUses,
   shopItems,
   playerAccounts,
@@ -38,19 +46,24 @@ import {
   teamMembers,
   teamScores,
   teams,
+  skillUnlocks,
+  wishes,
 } from "../db/schema";
 import type { BatchItem } from "drizzle-orm/batch";
 import type {
   AdminUser,
+  AdminWish,
   FeatureFlagKey,
   FeatureFlagView,
   Page,
   ScoreAuditEntry,
   SubmissionOwnerRef,
+  WeekScoreAuditEntry,
   WeekCounts,
 } from "../types";
 import { EMPTY_WEEK_COUNTS } from "./week-progress";
 import { featureFlagViews } from "./feature-flags";
+import { lockWallet } from "./shop";
 import { timestamptzToIso } from "../lib/time";
 import { LIST_PAGE_SIZE, pageInfo } from "../lib/pagination";
 import { deleteObjects, putObject } from "../lib/storage";
@@ -60,6 +73,10 @@ import type {
   BonusInput,
   ChangelogInput,
   CoinAdjustmentInput,
+  EggGiftInput,
+  ItemGiftInput,
+  MiniTaskInput,
+  WishDecisionInput,
   PlayerInput,
   PollInput,
   RecapInput,
@@ -206,7 +223,7 @@ export async function getPlayerDeleteImpact(
   id: string,
 ): Promise<DeleteImpact[]> {
   const db = getDb();
-  const [[s], [b], [m], [a], [e], [p], [v], [r], [c], [g], [o]] =
+  const [[s], [b], [m], [a], [e], [p], [v], [r], [c], [g], [o], [i], [x], [k]] =
     await db.batch([
       db
         .select({ n: count() })
@@ -251,6 +268,15 @@ export async function getPlayerDeleteImpact(
         .select({ n: count() })
         .from(crateOpens)
         .where(eq(crateOpens.playerId, id)),
+      db
+        .select({ n: count() })
+        .from(itemGifts)
+        .where(eq(itemGifts.playerId, id)),
+      db.select({ n: count() }).from(eggGifts).where(eq(eggGifts.playerId, id)),
+      db
+        .select({ n: count() })
+        .from(skillUnlocks)
+        .where(eq(skillUnlocks.playerId, id)),
     ]);
   return [
     { label: "individual score", count: s.n },
@@ -264,6 +290,9 @@ export async function getPlayerDeleteImpact(
     { label: "Clim Coin purchase", count: c.n },
     { label: "Clim Coin grant / deduction", count: g.n },
     { label: "mystery egg cracked", count: o.n },
+    { label: "gifted item", count: i.n },
+    { label: "gifted egg", count: x.n },
+    { label: "skill tree unlock", count: k.n },
   ];
 }
 
@@ -304,16 +333,38 @@ export async function setCurrentSeason(id: string): Promise<void> {
 
 /**
  * Closes a season, crowning its champion, or reopens it. A closed season's
- * weeks, roster and scores are read-only (see the middleware).
+ * weeks, roster and scores are read-only (see the middleware). Closing also
+ * takes its open marketplace listings down and declines their pending
+ * offers, so items go back to their sellers and offered coins are freed.
  */
 export async function setSeasonClosed(
   id: string,
   closed: boolean,
 ): Promise<void> {
-  await getDb()
+  const db = getDb();
+  const close = db
     .update(seasons)
     .set({ closedAt: closed ? sql`now()` : null })
     .where(eq(seasons.id, id));
+  if (!closed) {
+    await close;
+    return;
+  }
+  await db.batch([
+    close,
+    db.execute(sql`
+      update ${marketOffers} o
+      set status = 'declined', decided_at = now()
+      from ${marketListings} l
+      where l.id = o.listing_id
+        and l.season_id = ${id}
+        and l.status = 'open'
+        and o.status = 'pending'`),
+    db.execute(sql`
+      update ${marketListings}
+      set status = 'cancelled', closed_at = now()
+      where season_id = ${id} and status = 'open'`),
+  ]);
 }
 
 /** What still belongs to a season; only an empty season can be deleted. */
@@ -744,29 +795,35 @@ function scoreAuditRows(
 ): AuditRow[] {
   const base = { ...actorFields(actor), taskId, entity };
   return [
-    ...diff.created.map((row): AuditRow => ({
-      ...base,
-      action: "created",
-      subjectId: row.id,
-      pointsAfter: row.points,
-      noteAfter: row.comment,
-    })),
-    ...diff.updated.map(({ before, after }): AuditRow => ({
-      ...base,
-      action: "updated",
-      subjectId: after.id,
-      pointsBefore: before.points,
-      pointsAfter: after.points,
-      noteBefore: before.comment,
-      noteAfter: after.comment,
-    })),
-    ...diff.deleted.map((row): AuditRow => ({
-      ...base,
-      action: "deleted",
-      subjectId: row.id,
-      pointsBefore: row.points,
-      noteBefore: row.comment,
-    })),
+    ...diff.created.map(
+      (row): AuditRow => ({
+        ...base,
+        action: "created",
+        subjectId: row.id,
+        pointsAfter: row.points,
+        noteAfter: row.comment,
+      }),
+    ),
+    ...diff.updated.map(
+      ({ before, after }): AuditRow => ({
+        ...base,
+        action: "updated",
+        subjectId: after.id,
+        pointsBefore: before.points,
+        pointsAfter: after.points,
+        noteBefore: before.comment,
+        noteAfter: after.comment,
+      }),
+    ),
+    ...diff.deleted.map(
+      (row): AuditRow => ({
+        ...base,
+        action: "deleted",
+        subjectId: row.id,
+        pointsBefore: row.points,
+        noteBefore: row.comment,
+      }),
+    ),
   ];
 }
 
@@ -1040,21 +1097,38 @@ export async function getScoreAuditLog(
     info.page === page || info.total === 0
       ? requested
       : await selectPage(info.page);
+  return { ...info, items: rows.map(mapAuditRow) };
+}
+
+function mapAuditRow(row: typeof scoreAuditLog.$inferSelect): ScoreAuditEntry {
   return {
-    ...info,
-    items: rows.map((row) => ({
-      id: row.id,
-      at: timestamptzToIso(row.at),
-      actorName: row.actorName,
-      entity: row.entity,
-      action: row.action,
-      subjectId: row.subjectId,
-      ...(row.pointsBefore !== null && { pointsBefore: row.pointsBefore }),
-      ...(row.pointsAfter !== null && { pointsAfter: row.pointsAfter }),
-      ...(row.noteBefore !== null && { noteBefore: row.noteBefore }),
-      ...(row.noteAfter !== null && { noteAfter: row.noteAfter }),
-    })),
+    id: row.id,
+    at: timestamptzToIso(row.at),
+    actorName: row.actorName,
+    entity: row.entity,
+    action: row.action,
+    subjectId: row.subjectId,
+    ...(row.pointsBefore !== null && { pointsBefore: row.pointsBefore }),
+    ...(row.pointsAfter !== null && { pointsAfter: row.pointsAfter }),
+    ...(row.noteBefore !== null && { noteBefore: row.noteBefore }),
+    ...(row.noteAfter !== null && { noteAfter: row.noteAfter }),
   };
+}
+
+/**
+ * Every score and bonus change on `taskIds` (a season's weeks), newest
+ * first, for the activity log.
+ */
+export async function listScoreAuditForWeeks(
+  taskIds: readonly string[],
+): Promise<WeekScoreAuditEntry[]> {
+  if (taskIds.length === 0) return [];
+  const rows = await getDb()
+    .select()
+    .from(scoreAuditLog)
+    .where(inArray(scoreAuditLog.taskId, [...taskIds]))
+    .orderBy(desc(scoreAuditLog.at), desc(scoreAuditLog.id));
+  return rows.map((row) => ({ ...mapAuditRow(row), taskId: row.taskId }));
 }
 
 // ── Polls ─────────────────────────────────────────────────────────────
@@ -1428,6 +1502,7 @@ export async function updateShopItem(
       crateId: input.crateId,
       availableFrom: input.availableFrom,
       availableUntil: input.availableUntil,
+      stock: input.stock,
       ...(input.sortOrder !== undefined && { sortOrder: input.sortOrder }),
     })
     .where(eq(shopItems.id, id));
@@ -1477,6 +1552,220 @@ export async function deleteCoinAdjustment(
 }
 
 /**
+ * Gifts a player a shop item: owned through a zero-price purchase, written
+ * with its `item_gifts` row in one statement under the player's wallet lock.
+ * Any catalogue item can be gifted (retired, egg-exclusive or out of its
+ * sale window too), but not one they already own, nor a power-up whose
+ * effect they've had this season (each effect is used once a season, so a
+ * second charge would be dead). Returns whether it was gifted.
+ */
+export async function giftItem(
+  playerId: string,
+  input: ItemGiftInput,
+  actor: AdminUser,
+): Promise<boolean> {
+  const { actorId, actorName } = actorFields(actor);
+  const db = getDb();
+  const [, gifted] = await db.batch([
+    db.execute(lockWallet(playerId)),
+    db.execute(sql`
+      with given as (
+        insert into ${coinPurchases} (player_id, item_id, price)
+        select player.id, item.id, 0
+        from ${players} player
+        cross join ${shopItems} item
+        where player.id = ${playerId}
+          and item.id = ${input.itemId}
+          and not exists (
+            select 1 from ${coinPurchases} owned
+            join ${shopItems} owned_item on owned_item.id = owned.item_id
+            where owned.player_id = player.id
+              and (
+                owned.item_id = item.id
+                or owned_item.power_up = item.power_up
+              )
+          )
+        returning id, item_id
+      )
+      insert into ${itemGifts}
+        (player_id, item_id, purchase_id, reason, actor_id, actor_name)
+      select ${playerId}, given.item_id, given.id, ${input.reason},
+        ${actorId}, ${actorName}
+      from given
+      returning id`),
+  ]);
+  return gifted.rows.length > 0;
+}
+
+/**
+ * Takes back an item an admin gifted: its free purchase goes (and the gift
+ * row with it), and the player stops wearing it. A power-up charge already
+ * used on a week is kept (revoke the use in the week's judge tab first).
+ * Returns whether it was taken back.
+ */
+export async function revokeItemGift(
+  playerId: string,
+  giftId: number,
+): Promise<boolean> {
+  const db = getDb();
+  const [revoked] = await db.batch([
+    db.execute(sql`
+      delete from ${coinPurchases}
+      where id = (
+          select purchase_id from ${itemGifts}
+          where id = ${giftId} and player_id = ${playerId}
+        )
+        and not exists (
+          select 1 from ${powerUpUses} used
+          where used.purchase_id = ${coinPurchases.id}
+        )
+        and not exists (
+          select 1 from ${wishes} made
+          where made.purchase_id = ${coinPurchases.id}
+        )
+        and not exists (
+          select 1 from ${marketSales} sold
+          where sold.source_purchase_id = ${coinPurchases.id}
+        )
+      returning id`),
+    db.delete(equippedItems).where(
+      and(
+        eq(equippedItems.playerId, playerId),
+        sql`not exists (
+            select 1 from ${coinPurchases} owned
+            where owned.player_id = ${equippedItems.playerId}
+              and owned.item_id = ${equippedItems.itemId}
+          )`,
+      ),
+    ),
+  ]);
+  return revoked.rows.length > 0;
+}
+
+/**
+ * Gifts a player a mystery egg (`crateId`, any egg, on sale or not) to
+ * crack from their inventory, free. Returns whether it was gifted (the
+ * player still exists).
+ */
+export async function giftEgg(
+  playerId: string,
+  input: EggGiftInput,
+  actor: AdminUser,
+): Promise<boolean> {
+  const { actorId, actorName } = actorFields(actor);
+  const result = await getDb().execute(sql`
+    insert into ${eggGifts}
+      (player_id, crate_id, reason, actor_id, actor_name)
+    select player.id, ${input.crateId}, ${input.reason}, ${actorId},
+      ${actorName}
+    from ${players} player
+    where player.id = ${playerId}
+    returning id`);
+  return result.rows.length > 0;
+}
+
+/**
+ * Takes back a gifted egg the player hasn't cracked yet. Returns whether it
+ * was taken back (a cracked one stays: what it hatched is theirs).
+ */
+export async function revokeEggGift(
+  playerId: string,
+  giftId: number,
+): Promise<boolean> {
+  const db = getDb();
+  const [, revoked] = await db.batch([
+    db.execute(lockWallet(playerId)),
+    db.execute(sql`
+      delete from ${eggGifts}
+      where id = ${giftId}
+        and player_id = ${playerId}
+        and crate_open_id is null
+      returning id`),
+  ]);
+  return revoked.rows.length > 0;
+}
+
+// ── Wishes ────────────────────────────────────────────────────────────
+
+/** How many decided wishes the dashboard shows under the pending ones. */
+const RECENT_WISHES = 5;
+
+/**
+ * Wishes for the admin dashboard, from every season: all pending ones
+ * (oldest first, so they're answered in order) and the newest few decided.
+ */
+export async function listWishes(): Promise<{
+  pending: AdminWish[];
+  recent: AdminWish[];
+}> {
+  const db = getDb();
+  const columns = {
+    id: wishes.id,
+    playerId: wishes.playerId,
+    playerName: players.name,
+    wish: wishes.wish,
+    status: wishes.status,
+    response: wishes.response,
+    deciderName: wishes.deciderName,
+    decidedAt: wishes.decidedAt,
+    createdAt: wishes.createdAt,
+  };
+  const [pending, recent] = await db.batch([
+    db
+      .select(columns)
+      .from(wishes)
+      .innerJoin(players, eq(players.id, wishes.playerId))
+      .where(eq(wishes.status, "pending"))
+      .orderBy(asc(wishes.id)),
+    db
+      .select(columns)
+      .from(wishes)
+      .innerJoin(players, eq(players.id, wishes.playerId))
+      .where(notInArray(wishes.status, ["pending"]))
+      .orderBy(desc(wishes.decidedAt), desc(wishes.id))
+      .limit(RECENT_WISHES),
+  ]);
+  const toWish = (row: (typeof pending)[number]): AdminWish => ({
+    id: row.id,
+    playerId: row.playerId,
+    playerName: row.playerName,
+    wish: row.wish,
+    status: row.status,
+    ...(row.response !== null && { response: row.response }),
+    ...(row.deciderName !== null && { deciderName: row.deciderName }),
+    ...(row.decidedAt !== null && {
+      decidedAt: timestamptzToIso(row.decidedAt),
+    }),
+    at: timestamptzToIso(row.createdAt),
+  });
+  return { pending: pending.map(toWish), recent: recent.map(toWish) };
+}
+
+/**
+ * Grants or declines a pending wish, with an optional reply for the player.
+ * A decision is final; returns `false` if it was already decided (e.g. by
+ * another admin at the same time).
+ */
+export async function decideWish(
+  input: WishDecisionInput,
+  actor: AdminUser,
+): Promise<boolean> {
+  const { actorId, actorName } = actorFields(actor);
+  const decided = await getDb()
+    .update(wishes)
+    .set({
+      status: input.decision,
+      response: input.response,
+      deciderId: actorId,
+      deciderName: actorName,
+      decidedAt: sql`now()`,
+    })
+    .where(and(eq(wishes.id, input.rowId), eq(wishes.status, "pending")))
+    .returning({ id: wishes.id });
+  return decided.length > 0;
+}
+
+/**
  * Cancels a power-up used on a week: its effect goes and the charge returns
  * to the player's wallet, unused.
  */
@@ -1492,6 +1781,8 @@ export async function revokePowerUpUse(
 // ── Errors ────────────────────────────────────────────────────────────
 
 const CONSTRAINT_MESSAGES: Record<string, string> = {
+  mini_tasks_reward_range: "A mini-task pays between 1 and 5 Clim Coin.",
+  mini_tasks_ends_after_start: "The last day can't be before the first.",
   players_pkey: "A player with that id already exists.",
   teams_pkey: "A team with that id already exists.",
   tasks_pkey: "A task with that id already exists.",
@@ -1524,10 +1815,128 @@ const CONSTRAINT_MESSAGES: Record<string, string> = {
   coin_purchases_item_id_shop_items_id_fk:
     "Players own this item, so it can't be deleted. Retire it instead.",
   coin_adjustments_amount_range: "Use a non-zero amount up to 10000.",
+  item_gifts_item_id_shop_items_id_fk:
+    "Players were gifted this item, so it can't be deleted. Retire it instead.",
   shop_items_crate_only_droppable: "Power-ups can't be egg exclusives.",
+  shop_items_skill_only_not_crate_only:
+    "Skill tree rewards can't be egg exclusives.",
   crate_opens_item_id_shop_items_id_fk:
     "Players hatched this item from an egg, so it can't be deleted. Retire it instead.",
 };
+
+// ── Mini-tasks ────────────────────────────────────────────────────────
+
+export type MiniTaskRecord = typeof miniTasks.$inferSelect;
+
+/** A season's mini-tasks, newest start first, with how many completed each. */
+export async function listMiniTasks(
+  seasonId: string,
+): Promise<(MiniTaskRecord & { completions: number })[]> {
+  const db = getDb();
+  const [rows, counts] = await db.batch([
+    db
+      .select()
+      .from(miniTasks)
+      .where(eq(miniTasks.seasonId, seasonId))
+      .orderBy(desc(miniTasks.startsOn), desc(miniTasks.id)),
+    db
+      .select({ id: miniTaskCompletions.miniTaskId, n: count() })
+      .from(miniTaskCompletions)
+      .where(eq(miniTaskCompletions.seasonId, seasonId))
+      .groupBy(miniTaskCompletions.miniTaskId),
+  ]);
+  const done = new Map(counts.map((c) => [c.id, c.n]));
+  return rows.map((row) => ({ ...row, completions: done.get(row.id) ?? 0 }));
+}
+
+/** A mini-task with the ids of the players who completed it. */
+export async function getMiniTask(
+  id: number,
+): Promise<(MiniTaskRecord & { completedBy: string[] }) | undefined> {
+  const db = getDb();
+  const [[row], done] = await db.batch([
+    db.select().from(miniTasks).where(eq(miniTasks.id, id)),
+    db
+      .select({ playerId: miniTaskCompletions.playerId })
+      .from(miniTaskCompletions)
+      .where(eq(miniTaskCompletions.miniTaskId, id)),
+  ]);
+  return row && { ...row, completedBy: done.map((d) => d.playerId) };
+}
+
+/** Creates a mini-task in `seasonId`, returning its id. */
+export async function createMiniTask(
+  seasonId: string,
+  input: MiniTaskInput,
+): Promise<number> {
+  const [row] = await getDb()
+    .insert(miniTasks)
+    .values({ seasonId, ...input })
+    .returning({ id: miniTasks.id });
+  return row.id;
+}
+
+export async function updateMiniTask(
+  id: number,
+  input: MiniTaskInput,
+): Promise<void> {
+  await getDb().update(miniTasks).set(input).where(eq(miniTasks.id, id));
+}
+
+export async function getMiniTaskDeleteImpact(
+  id: number,
+): Promise<DeleteImpact[]> {
+  const [row] = await getDb()
+    .select({ n: count() })
+    .from(miniTaskCompletions)
+    .where(eq(miniTaskCompletions.miniTaskId, id));
+  return [{ label: "completion", count: row?.n ?? 0 }];
+}
+
+/** Deletes a mini-task; its completions (and their coin) go with it. */
+export async function deleteMiniTask(id: number): Promise<void> {
+  await getDb().delete(miniTasks).where(eq(miniTasks.id, id));
+}
+
+/**
+ * Sets exactly who has completed a mini-task. Players already ticked keep
+ * their original time and actor; newly ticked ones are recorded as `actor`,
+ * now. Players outside the mini-task's season are rejected by the foreign
+ * key. One transaction.
+ */
+export async function setMiniTaskCompletions(
+  task: Pick<MiniTaskRecord, "id" | "seasonId">,
+  playerIds: readonly string[],
+  actor: AdminUser,
+): Promise<void> {
+  const db = getDb();
+  const ofTask = eq(miniTaskCompletions.miniTaskId, task.id);
+  const remove = db
+    .delete(miniTaskCompletions)
+    .where(
+      playerIds.length === 0
+        ? ofTask
+        : and(ofTask, notInArray(miniTaskCompletions.playerId, [...playerIds])),
+    );
+  if (playerIds.length === 0) {
+    await remove;
+    return;
+  }
+  await db.batch([
+    remove,
+    db
+      .insert(miniTaskCompletions)
+      .values(
+        playerIds.map((playerId) => ({
+          miniTaskId: task.id,
+          playerId,
+          seasonId: task.seasonId,
+          ...actorFields(actor),
+        })),
+      )
+      .onConflictDoNothing(),
+  ]);
+}
 
 export { violatedConstraint } from "./db-errors";
 
@@ -1536,7 +1945,7 @@ export { violatedConstraint } from "./db-errors";
  * Returns `undefined` for anything unexpected so callers can rethrow.
  */
 export function describeWriteError(error: unknown): string | undefined {
-  for (let e: unknown = error; e && typeof e === "object";) {
+  for (let e: unknown = error; e && typeof e === "object"; ) {
     const { code, constraint } = e as { code?: string; constraint?: string };
     if (constraint && CONSTRAINT_MESSAGES[constraint]) {
       return CONSTRAINT_MESSAGES[constraint];
